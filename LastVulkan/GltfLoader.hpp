@@ -33,6 +33,9 @@ struct GltfMaterialData
     std::string alphaMode = "OPAQUE";
     float alphaCutoff = 0.5f;
     bool doubleSided = false;
+
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
 };
 
 struct GltfSceneData

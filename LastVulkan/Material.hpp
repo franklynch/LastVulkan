@@ -37,11 +37,20 @@ public:
     bool isDoubleSided() const { return doubleSided; }
     void setDoubleSided(bool value) { doubleSided = value; }
 
+    float getMetallicFactor() const { return metallicFactor; }
+    void setMetallicFactor(float value) { metallicFactor = value; }
+
+    float getRoughnessFactor() const { return roughnessFactor; }
+    void setRoughnessFactor(float value) { roughnessFactor = value; }
+
 private:
     Texture2D& texture;
     glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
 
     std::string name;
     bool doubleSided = false;
+
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
 
 };

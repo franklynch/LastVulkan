@@ -214,6 +214,19 @@ namespace EditorPanels
             return;
         }
 
+        float metallic = selectedMaterial->getMetallicFactor();
+        if (ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f))
+        {
+            selectedMaterial->setMetallicFactor(metallic);
+        }
+
+        float roughness = selectedMaterial->getRoughnessFactor();
+        if (ImGui::SliderFloat("Roughness", &roughness, 0.0f, 1.0f))
+        {
+            selectedMaterial->setRoughnessFactor(roughness);
+        }
+
+
         ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
         ImGui::Text("Material index: %d", selectedMaterialIndex);
 

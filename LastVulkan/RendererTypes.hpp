@@ -103,4 +103,11 @@ struct PushConstantData
 {
     glm::mat4 model{ 1.0f };
     glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+    // Suggested packing:
+    //    • x = metallicFactor
+    //    • y = roughnessFactor
+    //    • z, w unused for now
+
+    glm::vec4 materialParams{ 1.0f, 1.0f, 0.0f, 0.0f };
 };

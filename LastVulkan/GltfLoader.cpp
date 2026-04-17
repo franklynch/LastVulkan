@@ -136,7 +136,10 @@ GltfSceneData GltfLoader::load(const std::string& path)
         materialData.alphaCutoff = static_cast<float>(gltfMaterial.alphaCutoff);
         materialData.doubleSided = gltfMaterial.doubleSided;
 
+       
         const auto& pbr = gltfMaterial.pbrMetallicRoughness;
+
+      
 
         if (pbr.baseColorFactor.size() == 4)
         {
@@ -147,6 +150,9 @@ GltfSceneData GltfLoader::load(const std::string& path)
                 static_cast<float>(pbr.baseColorFactor[3]));
         }
 
+        materialData.metallicFactor = static_cast<float>(pbr.metallicFactor);
+        materialData.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+
         if (pbr.baseColorTexture.index >= 0)
         {
             int textureIndex = pbr.baseColorTexture.index;
@@ -156,6 +162,8 @@ GltfSceneData GltfLoader::load(const std::string& path)
                 materialData.baseColorImageIndex = gltfTexture.source;
             }
         }
+
+
 
         result.materials.push_back(materialData);
     }

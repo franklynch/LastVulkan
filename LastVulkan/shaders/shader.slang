@@ -22,6 +22,7 @@ struct PushConstants
 {
     float4x4 model;
     float4 baseColorFactor;
+    float4 materialParams;
 };
 
 [[vk::push_constant]]
@@ -62,8 +63,18 @@ float4 fragMain(VSOutput input) : SV_Target
     float3 N = normalize(input.fragNormal);
     float3 L = normalize(-ubo.lightDirection.xyz);
 
+    float metallic = saturate(pc.materialParams.x);
+    float roughness = saturate(pc.materialParams.y);
+
     float NdotL = max(dot(N, L), 0.0);
-    float3 lighting = ubo.ambientColor.xyz + ubo.lightColor.xyz * NdotL;
+    
+    float diffuseStrength = 1.0 - metallic;
+    
+    float lightSharpness = lerp(1.5, 0.5, roughness);
+    
+    
+    float3 lighting = ubo.ambientColor.xyz + ubo.lightColor.xyz * NdotL * diffuseStrength * lightSharpness;
+
 
     float4 texColor = texture.Sample(input.fragTexCoord);
     float4 baseColor = texColor * pc.baseColorFactor;

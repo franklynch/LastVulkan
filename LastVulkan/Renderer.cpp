@@ -138,6 +138,8 @@ void Renderer::init()
         material->setBaseColorFactor(importedMaterial.baseColorFactor);
         material->setName(importedMaterial.name);
         material->setDoubleSided(importedMaterial.doubleSided);
+        material->setMetallicFactor(importedMaterial.metallicFactor);
+        material->setRoughnessFactor(importedMaterial.roughnessFactor);
         materials.push_back(std::move(material));
 
 
@@ -1092,6 +1094,11 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             PushConstantData pushData{};
             pushData.model = renderable.getTransform().toMatrix();
             pushData.baseColorFactor = renderable.getMaterial().getBaseColorFactor();
+            pushData.materialParams = glm::vec4(
+                renderable.getMaterial().getMetallicFactor(),
+                renderable.getMaterial().getRoughnessFactor(),
+                0.0f,
+                0.0f);
 
             if (animateModel)
             {
