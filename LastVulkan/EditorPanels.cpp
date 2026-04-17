@@ -46,8 +46,7 @@ namespace EditorPanels
             ImGui::Text("Vertices: %u", totalVertexCount);
             ImGui::Text("Indices: %u", totalIndexCount);
         }
-    }
-
+    }   
 
     void drawAnimationPanel(
         bool& animateModel,
@@ -293,7 +292,8 @@ namespace EditorPanels
             ImGui::TextUnformatted("No texture bound.");
         }
     }
-    
+
+
     void EditorPanels::drawDebugPanel(EditorUiState& uiState, bool wireframeSupported)
     {
         if (!ImGui::CollapsingHeader("Debug"))

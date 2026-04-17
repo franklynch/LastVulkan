@@ -181,7 +181,8 @@ private:
     std::vector<vk::raii::ImageView> swapChainImageViews;
 
     vk::raii::PipelineLayout pipelineLayout = nullptr;
-    vk::raii::Pipeline graphicsPipeline = nullptr;
+    vk::raii::Pipeline solidPipeline = nullptr;
+    vk::raii::Pipeline wireframePipeline = nullptr;
 
     vk::raii::Image colorImage = nullptr;
     vk::raii::DeviceMemory colorImageMemory = nullptr;

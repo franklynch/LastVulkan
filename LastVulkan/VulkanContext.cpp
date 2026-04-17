@@ -243,6 +243,14 @@ void VulkanContext::createLogicalDevice()
     featureChain.get<vk::PhysicalDeviceFeatures2>()
         .features.samplerAnisotropy = VK_TRUE;
 
+    fillModeNonSolidEnabled = physicalDevice.getFeatures().fillModeNonSolid;
+
+    if (fillModeNonSolidEnabled)
+    {
+        featureChain.get<vk::PhysicalDeviceFeatures2>()
+            .features.fillModeNonSolid = VK_TRUE;
+    }   
+
     featureChain.get<vk::PhysicalDeviceVulkan13Features>()
         .setSynchronization2(VK_TRUE)
         .setDynamicRendering(VK_TRUE);

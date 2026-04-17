@@ -199,7 +199,9 @@ void Renderer::init()
 
 void Renderer::cleanupSwapChain()
 {
-    graphicsPipeline = nullptr;
+    solidPipeline = nullptr;
+    wireframePipeline = nullptr;
+
     pipelineLayout = nullptr;
 
     colorImageView = nullptr;
@@ -363,11 +365,8 @@ void Renderer::createGraphicsPipeline()
 {
     auto& device = vkContext.getDevice();
 
-    vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(readFile("shaders/vert.spv"));
-
-    vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(readFile("shaders/frag.spv"));
+    vk::raii::ShaderModule vertShaderModule = createShaderModule(readFile("shaders/vert.spv"));
+    vk::raii::ShaderModule fragShaderModule = createShaderModule(readFile("shaders/frag.spv"));
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo
@@ -381,7 +380,7 @@ void Renderer::createGraphicsPipeline()
         .setModule(*fragShaderModule)
         .setPName("main");
 
-    vk::PipelineShaderStageCreateInfo shaderStages[] = {
+    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
         vertShaderStageInfo,
         fragShaderStageInfo
     };
@@ -408,7 +407,6 @@ void Renderer::createGraphicsPipeline()
     rasterizer
         .setDepthClampEnable(VK_FALSE)
         .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
         .setCullMode(vk::CullModeFlagBits::eBack)
         .setFrontFace(vk::FrontFace::eCounterClockwise)
         .setDepthBiasEnable(VK_FALSE)
@@ -456,13 +454,12 @@ void Renderer::createGraphicsPipeline()
         .setOffset(0)
         .setSize(sizeof(PushConstantData));
 
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-
     std::array<vk::DescriptorSetLayout, 2> setLayouts = {
-    *frameDescriptorSetLayout,
-    *materialDescriptorSetLayout
+        *frameDescriptorSetLayout,
+        *materialDescriptorSetLayout
     };
 
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo
         .setSetLayouts(setLayouts)
         .setPushConstantRanges(pushConstantRange);
@@ -491,10 +488,26 @@ void Renderer::createGraphicsPipeline()
         .setColorAttachmentFormats(swapChainSurfaceFormat.format)
         .setDepthAttachmentFormat(depthFormat);
 
-    graphicsPipeline = vk::raii::Pipeline(
+    // Solid pipeline
+    rasterizer.setPolygonMode(vk::PolygonMode::eFill);
+
+    solidPipeline = vk::raii::Pipeline(
         device,
         nullptr,
         pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+
+    // Wireframe pipeline
+    wireframePipeline = nullptr;
+
+    if (vkContext.isFillModeNonSolidEnabled())
+    {
+        rasterizer.setPolygonMode(vk::PolygonMode::eLine);
+
+        wireframePipeline = vk::raii::Pipeline(
+            device,
+            nullptr,
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+    }
 }
 
 void Renderer::createColorResources()
@@ -929,166 +942,173 @@ void Renderer::drawFrame()
 }
 
 void Renderer::recordCommandBuffer(uint32_t imageIndex)
-{
-    auto& commandBuffer = commandBuffers[frameIndex];
-    commandBuffer.begin(vk::CommandBufferBeginInfo{});
-
-    vk::CommandBuffer cmd = *commandBuffer;
-    const auto& extent = swapChainExtent;
-
-    transitionToColorAttachment(
-        cmd,
-        *colorImage,
-        vk::ImageLayout::eUndefined);
-
-    vk::ImageLayout swapChainOldLayout =
-        swapChainImageInitialized[imageIndex]
-        ? vk::ImageLayout::ePresentSrcKHR
-        : vk::ImageLayout::eUndefined;
-
-    transitionToColorAttachment(
-        cmd,
-        swapChainImages[imageIndex],
-        swapChainOldLayout);
-
-    transitionToDepthAttachment(
-        cmd,
-        *depthImage,
-        depthAspect);
-
-    vk::ClearValue clearColorValue = vk::ClearColorValue(
-        clearColor.r,
-        clearColor.g,
-        clearColor.b,
-        clearColor.a);
-
-    vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
-
-    vk::RenderingAttachmentInfo colorAttachmentInfo{};
-    colorAttachmentInfo
-        .setImageView(*colorImageView)
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-        .setClearValue(clearColorValue)
-        .setResolveMode(vk::ResolveModeFlagBits::eAverage)
-        .setResolveImageView(*swapChainImageViews[imageIndex])
-        .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-    vk::RenderingAttachmentInfo depthAttachmentInfo{};
-    depthAttachmentInfo
-        .setImageView(*depthImageView)
-        .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-        .setClearValue(clearDepth);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(vk::Rect2D{}.setOffset(vk::Offset2D{ 0, 0 }).setExtent(extent))
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachmentInfo)
-        .setPDepthAttachment(&depthAttachmentInfo);
-
-    commandBuffer.beginRendering(renderingInfo);
-
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
-
-    commandBuffer.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(extent.width),
-            static_cast<float>(extent.height),
-            0.0f,
-            1.0f));
-
-    commandBuffer.setScissor(
-        0,
-        vk::Rect2D(vk::Offset2D(0, 0), extent));
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *pipelineLayout,
-        0,
-        *frameDescriptorSets[frameIndex],
-        nullptr);
-
-    for (auto& renderable : scene.getRenderables())
     {
-        commandBuffer.bindVertexBuffers(
-            0,
-            *renderable.getMesh().getVertexBuffer(),
-            { 0 });
+        auto& commandBuffer = commandBuffers[frameIndex];
+        commandBuffer.begin(vk::CommandBufferBeginInfo{});
 
-        commandBuffer.bindIndexBuffer(
-            *renderable.getMesh().getIndexBuffer(),
-            0,
-            vk::IndexType::eUint32);
+        vk::CommandBuffer cmd = *commandBuffer;
+        const auto& extent = swapChainExtent;
 
-        Material& renderableMaterial = renderable.getMaterial();
+        transitionToColorAttachment(
+            cmd,
+            *colorImage,
+            vk::ImageLayout::eUndefined);
 
-        auto materialIt = std::find_if(
-            materials.begin(),
-            materials.end(),
-            [&](const std::unique_ptr<Material>& candidate)
-            {
-                return candidate.get() == &renderableMaterial;
-            });
+        vk::ImageLayout swapChainOldLayout =
+            swapChainImageInitialized[imageIndex]
+            ? vk::ImageLayout::ePresentSrcKHR
+            : vk::ImageLayout::eUndefined;
 
-        if (materialIt == materials.end())
+        transitionToColorAttachment(
+            cmd,
+            swapChainImages[imageIndex],
+            swapChainOldLayout);
+
+        transitionToDepthAttachment(
+            cmd,
+            *depthImage,
+            depthAspect);
+
+        vk::ClearValue clearColorValue = vk::ClearColorValue(
+            clearColor.r,
+            clearColor.g,
+            clearColor.b,
+            clearColor.a);
+
+        vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
+
+        vk::RenderingAttachmentInfo colorAttachmentInfo{};
+        colorAttachmentInfo
+            .setImageView(*colorImageView)
+            .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setLoadOp(vk::AttachmentLoadOp::eClear)
+            .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+            .setClearValue(clearColorValue)
+            .setResolveMode(vk::ResolveModeFlagBits::eAverage)
+            .setResolveImageView(*swapChainImageViews[imageIndex])
+            .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal);
+
+        vk::RenderingAttachmentInfo depthAttachmentInfo{};
+        depthAttachmentInfo
+            .setImageView(*depthImageView)
+            .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+            .setLoadOp(vk::AttachmentLoadOp::eClear)
+            .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+            .setClearValue(clearDepth);
+
+        vk::RenderingInfo renderingInfo{};
+        renderingInfo
+            .setRenderArea(vk::Rect2D{}.setOffset(vk::Offset2D{ 0, 0 }).setExtent(extent))
+            .setLayerCount(1)
+            .setColorAttachments(colorAttachmentInfo)
+            .setPDepthAttachment(&depthAttachmentInfo);
+
+        commandBuffer.beginRendering(renderingInfo);
+
+        vk::Pipeline activePipeline = *solidPipeline;
+
+        if (uiState.wireframeRequested && *wireframePipeline)
         {
-            throw std::runtime_error("renderable material not found in renderer materials");
+            activePipeline = *wireframePipeline;
         }
 
-        size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, activePipeline);
+
+        commandBuffer.setViewport(
+            0,
+            vk::Viewport(
+                0.0f,
+                0.0f,
+                static_cast<float>(extent.width),
+                static_cast<float>(extent.height),
+                0.0f,
+                1.0f));
+
+        commandBuffer.setScissor(
+            0,
+            vk::Rect2D(vk::Offset2D(0, 0), extent));
 
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
             *pipelineLayout,
-            1,
-            *materialDescriptorSets[materialIndex],
+            0,
+            *frameDescriptorSets[frameIndex],
             nullptr);
 
-        PushConstantData pushData{};
-        pushData.model = renderable.getTransform().toMatrix();
-
-        if (animateModel)
+        for (auto& renderable : scene.getRenderables())
         {
-            pushData.model = glm::rotate(
-                pushData.model,
-                currentAnimationAngle,
-                glm::vec3(0.0f, 0.0f, 1.0f));
+            commandBuffer.bindVertexBuffers(
+                0,
+                *renderable.getMesh().getVertexBuffer(),
+                { 0 });
+
+            commandBuffer.bindIndexBuffer(
+                *renderable.getMesh().getIndexBuffer(),
+                0,
+                vk::IndexType::eUint32);
+
+            Material& renderableMaterial = renderable.getMaterial();
+
+            auto materialIt = std::find_if(
+                materials.begin(),
+                materials.end(),
+                [&](const std::unique_ptr<Material>& candidate)
+                {
+                    return candidate.get() == &renderableMaterial;
+                });
+
+            if (materialIt == materials.end())
+            {
+                throw std::runtime_error("renderable material not found in renderer materials");
+            }
+
+            size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+
+            commandBuffer.bindDescriptorSets(
+                vk::PipelineBindPoint::eGraphics,
+                *pipelineLayout,
+                1,
+                *materialDescriptorSets[materialIndex],
+                nullptr);
+
+            PushConstantData pushData{};
+            pushData.model = renderable.getTransform().toMatrix();
+
+            if (animateModel)
+            {
+                pushData.model = glm::rotate(
+                    pushData.model,
+                    currentAnimationAngle,
+                    glm::vec3(0.0f, 0.0f, 1.0f));
+            }
+
+            cmd.pushConstants(
+                *pipelineLayout,
+                vk::ShaderStageFlagBits::eVertex,
+                0,
+                sizeof(PushConstantData),
+                &pushData);
+
+            commandBuffer.drawIndexed(
+                renderable.getMesh().getIndexCount(),
+                1,
+                0,
+                0,
+                0);
         }
 
-        cmd.pushConstants(
-            *pipelineLayout,
-            vk::ShaderStageFlagBits::eVertex,
-            0,
-            sizeof(PushConstantData),
-            &pushData);
+        renderImGui(*commandBuffer);
 
-        commandBuffer.drawIndexed(
-            renderable.getMesh().getIndexCount(),
-            1,
-            0,
-            0,
-            0);
+        commandBuffer.endRendering();
+
+        transitionToPresent(
+            cmd,
+            swapChainImages[imageIndex]);
+
+        swapChainImageInitialized[imageIndex] = true;
+
+        commandBuffer.end();
     }
-
-    renderImGui(*commandBuffer);
-
-    commandBuffer.endRendering();
-
-    transitionToPresent(
-        cmd,
-        swapChainImages[imageIndex]);
-
-    swapChainImageInitialized[imageIndex] = true;
-
-    commandBuffer.end();
-}
 
 
 
@@ -1382,7 +1402,7 @@ int Renderer::getMaterialIndex(const Material& material) const
 
 bool Renderer::isWireframeSupported() const
 {
-    return vkContext.getPhysicalDevice().getFeatures().fillModeNonSolid;
+    return vkContext.isFillModeNonSolidEnabled();
 }
 
 

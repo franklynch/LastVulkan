@@ -50,6 +50,8 @@ public:
     uint32_t getQueueIndex() const { return queueIndex; }
     vk::SampleCountFlagBits getMsaaSamples() const { return msaaSamples; }
 
+    [[nodiscard]] bool isFillModeNonSolidEnabled() const { return fillModeNonSolidEnabled; }
+
 private:
     void createInstance();
     void setupDebugMessenger();
@@ -84,6 +86,8 @@ private:
     vk::raii::Device device = nullptr;
     vk::raii::Queue queue = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
+
+    bool fillModeNonSolidEnabled = false;
 
     uint32_t queueIndex = ~0u;
     vk::SampleCountFlagBits msaaSamples = vk::SampleCountFlagBits::e1;
