@@ -9,6 +9,10 @@ struct UniformBuffer
 {
     float4x4 view;
     float4x4 proj;
+
+    float4 lightDirection;
+    float4 lightColor;
+    float4 ambientColor;
 };
 
 [[vk::binding(0, 0)]]
@@ -17,6 +21,7 @@ ConstantBuffer<UniformBuffer> ubo;
 struct PushConstants
 {
     float4x4 model;
+    float4 baseColorFactor;
 };
 
 [[vk::push_constant]]
@@ -42,7 +47,11 @@ VSOutput vertMain(VSInput input)
     output.pos = mul(ubo.proj, mul(ubo.view, worldPos));
 
     output.fragTexCoord = input.inTexCoord;
-    output.fragNormal = input.inNormal;
+
+    // Good enough for now.
+    // Later, if you introduce non-uniform scaling heavily,
+    // switch to a proper normal matrix.
+    output.fragNormal = normalize(mul((float3x3)pc.model, input.inNormal));
 
     return output;
 }
@@ -50,5 +59,14 @@ VSOutput vertMain(VSInput input)
 [shader("fragment")]
 float4 fragMain(VSOutput input) : SV_Target
 {
-    return texture.Sample(input.fragTexCoord);
+    float3 N = normalize(input.fragNormal);
+    float3 L = normalize(-ubo.lightDirection.xyz);
+
+    float NdotL = max(dot(N, L), 0.0);
+    float3 lighting = ubo.ambientColor.xyz + ubo.lightColor.xyz * NdotL;
+
+    float4 texColor = texture.Sample(input.fragTexCoord);
+    float4 baseColor = texColor * pc.baseColorFactor;
+
+    return float4(baseColor.rgb * lighting, baseColor.a);
 }

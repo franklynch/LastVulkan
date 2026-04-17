@@ -31,7 +31,17 @@ public:
     [[nodiscard]] const glm::vec4& getBaseColorFactor() const { return baseColorFactor; }
     void setBaseColorFactor(const glm::vec4& value) { baseColorFactor = value; }
 
+    const std::string& getName() const { return name; }
+    void setName(const std::string& value) { name = value; }
+
+    bool isDoubleSided() const { return doubleSided; }
+    void setDoubleSided(bool value) { doubleSided = value; }
+
 private:
     Texture2D& texture;
     glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+    std::string name;
+    bool doubleSided = false;
+
 };

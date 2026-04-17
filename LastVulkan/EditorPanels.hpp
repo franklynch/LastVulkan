@@ -40,6 +40,17 @@ namespace EditorPanels
         std::function<void()> resetDefaultSceneLayoutFn,
         std::function<void()> focusSelectedRenderableFn);
 
+    void drawSelectedMaterialPanel(
+        const Renderable* selectedRenderable,
+        Material* selectedMaterial,
+        const Texture2D* selectedTexture,
+        int selectedMaterialIndex);
+
+    void drawLightingPanel(
+        glm::vec3& lightDirection,
+        glm::vec3& lightColor,
+        glm::vec3& ambientColor);
+
     void drawCameraPanel(
         Camera& camera,
         float& cameraRadius,

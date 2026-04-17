@@ -92,9 +92,15 @@ struct UniformBufferObject
 {
     glm::mat4 view{ 1.0f };
     glm::mat4 proj{ 1.0f };
+
+    glm::vec4 lightDirection{ -0.5f, -1.0f, -0.3f, 0.0f };
+    glm::vec4 lightColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+    glm::vec4 ambientColor{ 0.15f, 0.15f, 0.15f, 1.0f };
+
 };
 
 struct PushConstantData
 {
     glm::mat4 model{ 1.0f };
+    glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
 };

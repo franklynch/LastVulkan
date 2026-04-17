@@ -131,6 +131,11 @@ GltfSceneData GltfLoader::load(const std::string& path)
     {
         GltfMaterialData materialData{};
 
+        materialData.name = gltfMaterial.name;
+        materialData.alphaMode = gltfMaterial.alphaMode.empty() ? "OPAQUE" : gltfMaterial.alphaMode;
+        materialData.alphaCutoff = static_cast<float>(gltfMaterial.alphaCutoff);
+        materialData.doubleSided = gltfMaterial.doubleSided;
+
         const auto& pbr = gltfMaterial.pbrMetallicRoughness;
 
         if (pbr.baseColorFactor.size() == 4)

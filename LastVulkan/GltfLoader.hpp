@@ -26,8 +26,13 @@ struct GltfImageData
 
 struct GltfMaterialData
 {
+    std::string name;
     glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
     int baseColorImageIndex = -1;
+
+    std::string alphaMode = "OPAQUE";
+    float alphaCutoff = 0.5f;
+    bool doubleSided = false;
 };
 
 struct GltfSceneData

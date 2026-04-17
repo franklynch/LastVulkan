@@ -113,6 +113,8 @@ void Renderer::init()
         ));
 
         gltfImageToTextureIndex[i] = static_cast<int>(textures.size()) - 1;
+
+
     }
 
     // Slot 0 = default fallback material
@@ -134,7 +136,11 @@ void Renderer::init()
 
         auto material = std::make_unique<Material>(*assignedTexture);
         material->setBaseColorFactor(importedMaterial.baseColorFactor);
+        material->setName(importedMaterial.name);
+        material->setDoubleSided(importedMaterial.doubleSided);
         materials.push_back(std::move(material));
+
+
     }
 
     if (imported.renderables.empty())
@@ -337,7 +343,9 @@ void Renderer::createDescriptorSetLayout()
             .setBinding(0)
             .setDescriptorType(vk::DescriptorType::eUniformBuffer)
             .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eVertex);
+            .setStageFlags(
+                vk::ShaderStageFlagBits::eVertex |
+                vk::ShaderStageFlagBits::eFragment);
 
         vk::DescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.setBindings(uboBinding);
@@ -450,7 +458,9 @@ void Renderer::createGraphicsPipeline()
 
     vk::PushConstantRange pushConstantRange{};
     pushConstantRange
-        .setStageFlags(vk::ShaderStageFlagBits::eVertex)
+        .setStageFlags(
+            vk::ShaderStageFlagBits::eVertex |
+            vk::ShaderStageFlagBits::eFragment)
         .setOffset(0)
         .setSize(sizeof(PushConstantData));
 
@@ -755,19 +765,27 @@ void Renderer::createSyncObjects()
 
 void Renderer::updateUniformBuffer(uint32_t currentFrame)
 {
-    UniformBufferObject ubo{};
-
     static auto startTime = std::chrono::high_resolution_clock::now();
-    auto currentTime = std::chrono::high_resolution_clock::now();
 
+    auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float>(currentTime - startTime).count();
-    currentAnimationAngle = animateModel ? time * glm::radians(rotationSpeed) : 0.0f;
+
+    if (animateModel)
+    {
+        currentAnimationAngle = time * glm::radians(rotationSpeed);
+    }
+
+    UniformBufferObject ubo{};
 
     const auto& extent = swapChainExtent;
     float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
 
     ubo.view = camera.getViewMatrix();
     ubo.proj = camera.getProjectionMatrix(aspect);
+
+    ubo.lightDirection = glm::vec4(glm::normalize(lightDirection), 0.0f);
+    ubo.lightColor = glm::vec4(lightColor, 1.0f);
+    ubo.ambientColor = glm::vec4(ambientColor, 1.0f);
 
     std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 }
@@ -1073,6 +1091,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
             PushConstantData pushData{};
             pushData.model = renderable.getTransform().toMatrix();
+            pushData.baseColorFactor = renderable.getMaterial().getBaseColorFactor();
 
             if (animateModel)
             {
@@ -1084,7 +1103,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
             cmd.pushConstants(
                 *pipelineLayout,
-                vk::ShaderStageFlagBits::eVertex,
+                vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
                 0,
                 sizeof(PushConstantData),
                 &pushData);
@@ -1564,6 +1583,7 @@ void Renderer::buildImGui()
         Material* selectedMaterial = getSelectedRenderableMaterial();
         int selectedMaterialIndex = selectedMaterial ? getMaterialIndex(*selectedMaterial) : -1;
         const Texture2D* selectedTexture = selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
+        Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
         EditorPanels::drawAssetInspectionPanel(
             scene,
@@ -1574,6 +1594,18 @@ void Renderer::buildImGui()
             selectedMaterialIndex,
             selectedMaterial,
             selectedTexture);
+
+        EditorPanels::drawLightingPanel(
+            lightDirection,
+            lightColor,
+            ambientColor);
+       
+
+        EditorPanels::drawSelectedMaterialPanel(
+            selectedRenderable,
+            selectedMaterial,
+            selectedTexture,
+            selectedMaterialIndex);
 
         EditorPanels::drawDebugPanel(
             uiState,

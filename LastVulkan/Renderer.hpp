@@ -162,6 +162,10 @@ private:
 
     glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
+    glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+    glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
+    glm::vec3 ambientColor = glm::vec3(0.15f, 0.15f, 0.15f);
+
     float frameTimeMs = 0.0f;
     float fps = 0.0f;
 

@@ -197,6 +197,49 @@ namespace EditorPanels
         }
     }
 
+    void EditorPanels::drawSelectedMaterialPanel(
+        const Renderable* selectedRenderable,
+        Material* selectedMaterial,
+        const Texture2D* selectedTexture,
+        int selectedMaterialIndex)
+    {
+        if (!ImGui::CollapsingHeader("Selected Material", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            return;
+        }
+
+        if (!selectedRenderable || !selectedMaterial)
+        {
+            ImGui::TextUnformatted("No renderable selected.");
+            return;
+        }
+
+        ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
+        ImGui::Text("Material index: %d", selectedMaterialIndex);
+
+        ImGui::Text("Material name: %s",
+            selectedMaterial->getName().empty() ? "<unnamed>" : selectedMaterial->getName().c_str());
+
+        ImGui::Text("Double sided: %s",
+            selectedMaterial->isDoubleSided() ? "true" : "false");
+
+        glm::vec4 color = selectedMaterial->getBaseColorFactor();
+        if (ImGui::ColorEdit4("Base Color Factor", &color.x))
+        {
+            selectedMaterial->setBaseColorFactor(color);
+        }
+
+        if (selectedTexture)
+        {
+            ImGui::Text("Texture: %s", selectedTexture->getSourcePath().c_str());
+            ImGui::Text("Mip levels: %u", selectedTexture->getMipLevels());
+        }
+        else
+        {
+            ImGui::TextUnformatted("No texture bound.");
+        }
+    }
+    
     void drawCameraPanel(
         Camera&,
         float& cameraRadius,
@@ -241,6 +284,28 @@ namespace EditorPanels
         }
     }
 
+    void EditorPanels::drawLightingPanel(
+        glm::vec3& lightDirection,
+        glm::vec3& lightColor,
+        glm::vec3& ambientColor)
+    {
+        if (!ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            return;
+        }
+
+        ImGui::DragFloat3("Light Direction", &lightDirection.x, 0.01f);
+        ImGui::ColorEdit3("Light Color", &lightColor.x);
+        ImGui::ColorEdit3("Ambient Color", &ambientColor.x);
+
+        if (ImGui::Button("Reset Lighting"))
+        {
+            lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+            lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
+            ambientColor = glm::vec3(0.15f, 0.15f, 0.15f);
+        }
+    }
+
     
     void EditorPanels::drawAssetInspectionPanel(
         const Scene& scene,
@@ -280,6 +345,12 @@ namespace EditorPanels
             glm::vec4 color = selectedMaterial->getBaseColorFactor();
             ImGui::Text("Base color factor: %.3f %.3f %.3f %.3f",
                 color.r, color.g, color.b, color.a);
+
+            ImGui::Text("Material name: %s",
+                selectedMaterial->getName().empty() ? "<unnamed>" : selectedMaterial->getName().c_str());
+
+            ImGui::Text("Double sided: %s",
+                selectedMaterial->isDoubleSided() ? "true" : "false");
         }
 
         if (selectedTexture)
