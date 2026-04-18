@@ -124,7 +124,6 @@ GltfSceneData GltfLoader::load(const std::string& path)
         result.images.push_back(std::move(imageData));
     }
 
-    // Add glTF material extraction here
     result.materials.reserve(model.materials.size());
 
     for (const auto& gltfMaterial : model.materials)
@@ -136,10 +135,7 @@ GltfSceneData GltfLoader::load(const std::string& path)
         materialData.alphaCutoff = static_cast<float>(gltfMaterial.alphaCutoff);
         materialData.doubleSided = gltfMaterial.doubleSided;
 
-       
         const auto& pbr = gltfMaterial.pbrMetallicRoughness;
-
-      
 
         if (pbr.baseColorFactor.size() == 4)
         {
@@ -163,11 +159,38 @@ GltfSceneData GltfLoader::load(const std::string& path)
             }
         }
 
+        if (pbr.metallicRoughnessTexture.index >= 0)
+        {
+            int textureIndex = pbr.metallicRoughnessTexture.index;
+            if (textureIndex >= 0 && textureIndex < static_cast<int>(model.textures.size()))
+            {
+                const tinygltf::Texture& gltfTexture = model.textures[textureIndex];
+                materialData.metallicRoughnessImageIndex = gltfTexture.source;
+            }
+        }
 
+        if (gltfMaterial.normalTexture.index >= 0)
+        {
+            int textureIndex = gltfMaterial.normalTexture.index;
+            if (textureIndex >= 0 && textureIndex < static_cast<int>(model.textures.size()))
+            {
+                const tinygltf::Texture& gltfTexture = model.textures[textureIndex];
+                materialData.normalImageIndex = gltfTexture.source;
+            }
+
+            materialData.normalScale = static_cast<float>(gltfMaterial.normalTexture.scale);
+        }
+
+        std::cout << "Material: "
+            << (materialData.name.empty() ? "<unnamed>" : materialData.name)
+            << ", baseColorImageIndex = " << materialData.baseColorImageIndex
+            << ", metallicRoughnessImageIndex = " << materialData.metallicRoughnessImageIndex
+            << ", normalImageIndex = " << materialData.normalImageIndex
+            << ", normalScale = " << materialData.normalScale
+            << std::endl;
 
         result.materials.push_back(materialData);
     }
-
 
     if (model.scenes.empty())
         return result;
@@ -196,16 +219,13 @@ GltfSceneData GltfLoader::load(const std::string& path)
                     const float* positions = nullptr;
                     const float* normals = nullptr;
                     const float* texcoords = nullptr;
+                    const float* tangents = nullptr;
                     size_t vertexCount = 0;
 
-                    // POSITION
                     {
-                        const auto& accessor =
-                            model.accessors[primitive.attributes.at("POSITION")];
-                        const auto& bufferView =
-                            model.bufferViews[accessor.bufferView];
-                        const auto& buffer =
-                            model.buffers[bufferView.buffer];
+                        const auto& accessor = model.accessors[primitive.attributes.at("POSITION")];
+                        const auto& bufferView = model.bufferViews[accessor.bufferView];
+                        const auto& buffer = model.buffers[bufferView.buffer];
 
                         positions = reinterpret_cast<const float*>(
                             buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
@@ -213,31 +233,33 @@ GltfSceneData GltfLoader::load(const std::string& path)
                         vertexCount = accessor.count;
                     }
 
-                    // NORMAL (optional)
                     if (primitive.attributes.contains("NORMAL"))
                     {
-                        const auto& accessor =
-                            model.accessors[primitive.attributes.at("NORMAL")];
-                        const auto& bufferView =
-                            model.bufferViews[accessor.bufferView];
-                        const auto& buffer =
-                            model.buffers[bufferView.buffer];
+                        const auto& accessor = model.accessors[primitive.attributes.at("NORMAL")];
+                        const auto& bufferView = model.bufferViews[accessor.bufferView];
+                        const auto& buffer = model.buffers[bufferView.buffer];
 
                         normals = reinterpret_cast<const float*>(
                             buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
                     }
 
-                    // TEXCOORD_0 (optional)
                     if (primitive.attributes.contains("TEXCOORD_0"))
                     {
-                        const auto& accessor =
-                            model.accessors[primitive.attributes.at("TEXCOORD_0")];
-                        const auto& bufferView =
-                            model.bufferViews[accessor.bufferView];
-                        const auto& buffer =
-                            model.buffers[bufferView.buffer];
+                        const auto& accessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+                        const auto& bufferView = model.bufferViews[accessor.bufferView];
+                        const auto& buffer = model.buffers[bufferView.buffer];
 
                         texcoords = reinterpret_cast<const float*>(
+                            buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
+                    }
+
+                    if (primitive.attributes.contains("TANGENT"))
+                    {
+                        const auto& accessor = model.accessors[primitive.attributes.at("TANGENT")];
+                        const auto& bufferView = model.bufferViews[accessor.bufferView];
+                        const auto& buffer = model.buffers[bufferView.buffer];
+
+                        tangents = reinterpret_cast<const float*>(
                             buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
                     }
 
@@ -266,10 +288,17 @@ GltfSceneData GltfLoader::load(const std::string& path)
                                 1.0f - texcoords[i * 2 + 1])
                             : glm::vec2(0.0f);
 
+                        v.tangent = tangents
+                            ? glm::vec4(
+                                tangents[i * 4 + 0],
+                                tangents[i * 4 + 1],
+                                tangents[i * 4 + 2],
+                                tangents[i * 4 + 3])
+                            : glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+
                         meshData.vertices[i] = v;
                     }
 
-                    // INDICES
                     if (primitive.indices >= 0)
                     {
                         const auto& accessor = model.accessors[primitive.indices];

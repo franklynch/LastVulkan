@@ -176,6 +176,12 @@ private:
     EditorUiState uiState;
 
     Camera camera;
+
+    std::vector<std::unique_ptr<Texture2D>> normalTextures;
+    std::unique_ptr<Texture2D> defaultNormalTexture;
+
+    std::vector<std::unique_ptr<Texture2D>> metallicRoughnessTextures;
+    std::unique_ptr<Texture2D> defaultMetallicRoughnessTexture;
     
 
     vk::raii::SwapchainKHR swapChain = nullptr;

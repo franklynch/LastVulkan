@@ -60,6 +60,8 @@ MeshData ModelLoader::loadObj(const std::string& path) const
                 vertex.texCoord = { 0.0f, 0.0f };
             }
 
+            vertex.tangent = { 1.0f, 0.0f, 0.0f, 1.0f };
+
             if (uniqueVertices.count(vertex) == 0)
             {
                 uniqueVertices[vertex] = static_cast<uint32_t>(meshData.vertices.size());

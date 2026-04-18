@@ -8,7 +8,8 @@ ImageUtils::ImageUtils(VulkanContext& vkContext, BufferUtils& bufferUtils)
 {
 }
 
-void ImageUtils::createImage(uint32_t width,
+void ImageUtils::createImage(
+    uint32_t width,
     uint32_t height,
     uint32_t mipLevels,
     vk::SampleCountFlagBits numSamples,

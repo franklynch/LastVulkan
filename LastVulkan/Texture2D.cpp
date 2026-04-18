@@ -30,22 +30,28 @@ Texture2D::Texture2D(
     uint32_t width,
     uint32_t height,
     uint32_t channels,
-    const std::string& debugName)
+    const std::string& debugName,
+    vk::Format format)
     : vkContext(vkContext)
     , bufferUtils(bufferUtils)
     , imageUtils(imageUtils)
     , sourcePath(debugName)
+    , imageFormat(format)
 {
-    loadFromMemory(pixelData, width, height, channels);
+    loadFromMemory(pixelData, width, height, channels, format);
     createImageView();
     createSampler();
 }
+
+
 
 void Texture2D::loadFromFile(const std::string& path)
 {
     int texWidth = 0;
     int texHeight = 0;
     int texChannels = 0;
+
+    imageFormat = vk::Format::eR8G8B8A8Srgb;
 
     stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     if (!pixels)
@@ -80,7 +86,7 @@ void Texture2D::loadFromFile(const std::string& path)
         static_cast<uint32_t>(texHeight),
         mipLevels,
         vk::SampleCountFlagBits::e1,
-        vk::Format::eR8G8B8A8Srgb,
+        imageFormat,
         vk::ImageTiling::eOptimal,
         vk::ImageUsageFlagBits::eTransferSrc |
         vk::ImageUsageFlagBits::eTransferDst |
@@ -104,14 +110,15 @@ void Texture2D::loadFromFile(const std::string& path)
         static_cast<uint32_t>(texHeight)
     );
 
-    generateMipmaps(image, vk::Format::eR8G8B8A8Srgb, texWidth, texHeight, mipLevels);
+    generateMipmaps(image, imageFormat, texWidth, texHeight, mipLevels);
 }
 
 void Texture2D::loadFromMemory(
     const unsigned char* pixelData,
     uint32_t width,
     uint32_t height,
-    uint32_t channels)
+    uint32_t channels,
+    vk::Format format)
 {
     if (!pixelData)
         throw std::runtime_error("Texture2D: pixelData is null");
@@ -167,7 +174,7 @@ void Texture2D::loadFromMemory(
         height,
         mipLevels,
         vk::SampleCountFlagBits::e1,
-        vk::Format::eR8G8B8A8Srgb,
+        format,
         vk::ImageTiling::eOptimal,
         vk::ImageUsageFlagBits::eTransferSrc |
         vk::ImageUsageFlagBits::eTransferDst |
@@ -193,7 +200,7 @@ void Texture2D::loadFromMemory(
 
     generateMipmaps(
         image,
-        vk::Format::eR8G8B8A8Srgb,
+        format,
         static_cast<int32_t>(width),
         static_cast<int32_t>(height),
         mipLevels
@@ -202,12 +209,11 @@ void Texture2D::loadFromMemory(
 
 void Texture2D::createImageView()
 {
-    imageView = imageUtils.createImageView(
-        image,
-        vk::Format::eR8G8B8A8Srgb,
-        vk::ImageAspectFlagBits::eColor,
-        mipLevels
-    );
+        imageView = imageUtils.createImageView(
+            image,
+            imageFormat,
+            vk::ImageAspectFlagBits::eColor,
+            mipLevels);
 }
 
 void Texture2D::createSampler()

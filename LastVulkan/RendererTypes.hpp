@@ -21,7 +21,9 @@ inline constexpr uint32_t WIDTH = 800;
 inline constexpr uint32_t HEIGHT = 600;
 
 inline const std::string MODEL_PATH = "models/viking_room.obj";
-inline const std::string TEXTURE_PATH = "models/rubber_duck/textures/Duck_baseColor.png";
+inline const std::string TEXTURE_PATH = "models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest_OcclusionRoughnessMetallic.png";
+
+// C:\dev\LastVulkan\LastVulkan\models\NormalTangentMirrorTest\glTF
 
 inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -30,6 +32,7 @@ struct Vertex
     glm::vec3 pos{ 0.0f };
     glm::vec3 normal{ 0.0f, 0.0f, 1.0f };
     glm::vec2 texCoord{ 0.0f };
+    glm::vec4 tangent{ 1.0f, 0.0f, 0.0f, 1.0f };
 
     static vk::VertexInputBindingDescription getBindingDescription()
     {
@@ -40,7 +43,7 @@ struct Vertex
         );
     }
 
-    static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions()
+    static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions()
     {
         return {
             vk::VertexInputAttributeDescription(
@@ -60,6 +63,12 @@ struct Vertex
                 0,
                 vk::Format::eR32G32Sfloat,
                 offsetof(Vertex, texCoord)
+            ),
+            vk::VertexInputAttributeDescription(
+                3,
+                0,
+                vk::Format::eR32G32B32A32Sfloat,
+                offsetof(Vertex, tangent)
             )
         };
     }
@@ -68,7 +77,8 @@ struct Vertex
     {
         return pos == other.pos &&
             normal == other.normal &&
-            texCoord == other.texCoord;
+            texCoord == other.texCoord &&
+            tangent == other.tangent;
     }
 };
 
@@ -82,8 +92,9 @@ namespace std
             size_t h1 = hash<glm::vec3>()(vertex.pos);
             size_t h2 = hash<glm::vec3>()(vertex.normal);
             size_t h3 = hash<glm::vec2>()(vertex.texCoord);
+            size_t h4 = hash<glm::vec4>()(vertex.tangent);
 
-            return ((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1);
+            return (((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1)) ^ (h4 << 2);
         }
     };
 }

@@ -28,7 +28,8 @@ public:
         uint32_t width,
         uint32_t height,
         uint32_t channels,
-        const std::string& debugName = "<memory>");
+        const std::string& debugName = "<memory>",
+        vk::Format format = vk::Format::eR8G8B8A8Srgb);
 
 
     Texture2D(const Texture2D&) = delete;
@@ -47,7 +48,9 @@ private:
         const unsigned char* pixelData,
         uint32_t width,
         uint32_t height,
-        uint32_t channels);
+        uint32_t channels,
+        vk::Format format);
+        
 
     void createImageView();
     void createSampler();
@@ -70,6 +73,8 @@ private:
     vk::raii::DeviceMemory imageMemory = nullptr;
     vk::raii::ImageView imageView = nullptr;
     vk::raii::Sampler sampler = nullptr;
+
+    vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb;
 
 
 };

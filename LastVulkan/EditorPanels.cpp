@@ -236,6 +236,23 @@ namespace EditorPanels
         ImGui::Text("Double sided: %s",
             selectedMaterial->isDoubleSided() ? "true" : "false");
 
+        ImGui::Text("Has normal map: %s", selectedMaterial->hasNormalTexture() ? "true" : "false");
+
+        ImGui::Text("Has metallic-roughness map: %s",
+            selectedMaterial->hasMetallicRoughnessTexture() ? "true" : "false");
+
+        float normalScale = selectedMaterial->getNormalScale();
+        if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 2.0f))
+        {
+            selectedMaterial->setNormalScale(normalScale);
+        }
+
+        if (selectedMaterial && selectedMaterial->getNormalTexture())
+        {
+            ImGui::Text("Normal Texture: %s",
+                selectedMaterial->getNormalTexture()->getSourcePath().c_str());
+        }
+
         glm::vec4 color = selectedMaterial->getBaseColorFactor();
         if (ImGui::ColorEdit4("Base Color Factor", &color.x))
         {

@@ -1,0 +1,52 @@
+ Volume in drive C is OS
+ Volume Serial Number is 301A-354F
+
+ Directory of C:\dev\LastVulkan\LastVulkan\models\DamagedHelmet
+
+18/04/2026  12:43    <DIR>          .
+18/04/2026  12:40    <DIR>          ..
+18/04/2026  12:40    <DIR>          glTF
+18/04/2026  12:40    <DIR>          glTF-Binary
+18/04/2026  12:40    <DIR>          glTF-Embedded
+18/04/2026  12:43                 0 ls.txt
+18/04/2026  09:47               582 README.md
+18/04/2026  12:40    <DIR>          screenshot
+               2 File(s)            582 bytes
+
+ Directory of C:\dev\LastVulkan\LastVulkan\models\DamagedHelmet\glTF
+
+18/04/2026  12:40    <DIR>          .
+18/04/2026  12:43    <DIR>          ..
+18/04/2026  09:47           558,504 DamagedHelmet.bin
+18/04/2026  09:47             4,741 DamagedHelmet.gltf
+18/04/2026  09:47           935,629 Default_albedo.jpg
+18/04/2026  09:47           361,678 Default_AO.jpg
+18/04/2026  09:47            97,499 Default_emissive.jpg
+18/04/2026  09:47         1,300,661 Default_metalRoughness.jpg
+18/04/2026  09:47           517,757 Default_normal.jpg
+               7 File(s)      3,776,469 bytes
+
+ Directory of C:\dev\LastVulkan\LastVulkan\models\DamagedHelmet\glTF-Binary
+
+18/04/2026  12:40    <DIR>          .
+18/04/2026  12:43    <DIR>          ..
+18/04/2026  09:47         3,773,916 DamagedHelmet.glb
+               1 File(s)      3,773,916 bytes
+
+ Directory of C:\dev\LastVulkan\LastVulkan\models\DamagedHelmet\glTF-Embedded
+
+18/04/2026  12:40    <DIR>          .
+18/04/2026  12:43    <DIR>          ..
+18/04/2026  09:47         5,033,760 DamagedHelmet.gltf
+               1 File(s)      5,033,760 bytes
+
+ Directory of C:\dev\LastVulkan\LastVulkan\models\DamagedHelmet\screenshot
+
+18/04/2026  12:40    <DIR>          .
+18/04/2026  12:43    <DIR>          ..
+18/04/2026  09:47            45,695 screenshot.png
+               1 File(s)         45,695 bytes
+
+     Total Files Listed:
+              12 File(s)     12,630,422 bytes
+              14 Dir(s)  71,569,448,960 bytes free

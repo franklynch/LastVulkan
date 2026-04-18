@@ -36,6 +36,10 @@ struct GltfMaterialData
 
     float metallicFactor = 1.0f;
     float roughnessFactor = 1.0f;
+    int metallicRoughnessImageIndex = -1;
+
+    int normalImageIndex = -1;
+    float normalScale = 1.0f;
 };
 
 struct GltfSceneData

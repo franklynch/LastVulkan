@@ -23,8 +23,30 @@ public:
 
     const Texture2D& getTexture() const { return texture; }
 
+    const Texture2D* getNormalTexture() const { return normalTexture; }
+    void setNormalTexture(Texture2D* value) { normalTexture = value; }
+
+    const Texture2D* getMetallicRoughnessTexture() const { return metallicRoughnessTexture; }
+    void setMetallicRoughnessTexture(Texture2D* value) { metallicRoughnessTexture = value; }
+
+    float getNormalScale() const { return normalScale; }
+    void setNormalScale(float value) { normalScale = value; }
+
+    bool hasNormalTexture() const { return normalTexture != nullptr; }
+    bool hasMetallicRoughnessTexture() const { return metallicRoughnessTexture != nullptr; }
+
     [[nodiscard]] vk::DescriptorImageInfo getImageInfo() const;
     [[nodiscard]] MaterialImageWrite makeImageWrite(
+        vk::DescriptorSet dstSet,
+        uint32_t binding) const;
+
+    [[nodiscard]] vk::DescriptorImageInfo getNormalImageInfo() const;
+    [[nodiscard]] MaterialImageWrite makeNormalImageWrite(
+        vk::DescriptorSet dstSet,
+        uint32_t binding) const;
+
+    [[nodiscard]] vk::DescriptorImageInfo getMetallicRoughnessImageInfo() const;
+    [[nodiscard]] MaterialImageWrite makeMetallicRoughnessImageWrite(
         vk::DescriptorSet dstSet,
         uint32_t binding) const;
 
@@ -45,12 +67,14 @@ public:
 
 private:
     Texture2D& texture;
-    glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
+    Texture2D* normalTexture = nullptr;
+    Texture2D* metallicRoughnessTexture = nullptr;
 
+    glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
     std::string name;
     bool doubleSided = false;
 
     float metallicFactor = 1.0f;
     float roughnessFactor = 1.0f;
-
+    float normalScale = 1.0f;
 };

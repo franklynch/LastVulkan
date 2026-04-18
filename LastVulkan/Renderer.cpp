@@ -55,9 +55,42 @@ void Renderer::init()
     createDepthResources();
 
     textures.clear();
+    normalTextures.clear();
+    defaultNormalTexture.reset();
     materials.clear();
     scene.clear();
     gpuMeshes.clear();
+
+    metallicRoughnessTextures.clear();
+    defaultMetallicRoughnessTexture.reset();
+
+    const unsigned char flatNormalPixels[4] = { 128, 128, 255, 255 };
+
+    defaultNormalTexture = std::make_unique<Texture2D>(
+        vkContext,
+        bufferUtils,
+        imageUtils,
+        flatNormalPixels,
+        1,
+        1,
+        4,
+        "Default Flat Normal",
+        vk::Format::eR8G8B8A8Unorm);
+
+    const unsigned char defaultMRPixels[4] = { 255, 255, 255, 255 };
+
+    defaultMetallicRoughnessTexture = std::make_unique<Texture2D>(
+        vkContext,
+        bufferUtils,
+        imageUtils,
+        defaultMRPixels,
+        1,
+        1,
+        4,
+        "Default MetallicRoughness",
+        vk::Format::eR8G8B8A8Unorm);
+
+    
 
     // Slot 0 = default fallback texture
     textures.push_back(std::make_unique<Texture2D>(
@@ -73,14 +106,96 @@ void Renderer::init()
     camera.setNearFar(cameraNear, cameraFar);
 
     GltfLoader loader;
-    GltfSceneData imported = loader.load("models/rubber_duck/scene.gltf");
+    
+    
+    GltfSceneData imported = loader.load("models/DamagedHelmet/glTF/DamagedHelmet.gltf");
+        
+
+    
 
     if (textures.empty())
     {
         throw std::runtime_error("default texture is not available");
     }
 
-    
+    std::vector<int> gltfImageToNormalTextureIndex(imported.images.size(), -1);
+
+    std::vector<bool> imageUsedAsNormal(imported.images.size(), false);
+
+    for (const auto& importedMaterial : imported.materials)
+    {
+        if (importedMaterial.normalImageIndex >= 0 &&
+            importedMaterial.normalImageIndex < static_cast<int>(imageUsedAsNormal.size()))
+        {
+            imageUsedAsNormal[importedMaterial.normalImageIndex] = true;
+        }
+    }
+
+    for (size_t i = 0; i < imported.images.size(); ++i)
+    {
+        if (!imageUsedAsNormal[i])
+            continue;
+
+        const auto& image = imported.images[i];
+
+        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
+            continue;
+
+        if (image.channels != 3 && image.channels != 4)
+            continue;
+
+        normalTextures.push_back(std::make_unique<Texture2D>(
+            vkContext,
+            bufferUtils,
+            imageUtils,
+            image.pixels.data(),
+            static_cast<uint32_t>(image.width),
+            static_cast<uint32_t>(image.height),
+            static_cast<uint32_t>(image.channels),
+            image.name.empty() ? ("glTF normal image " + std::to_string(i)) : image.name,
+            vk::Format::eR8G8B8A8Unorm));
+
+        gltfImageToNormalTextureIndex[i] = static_cast<int>(normalTextures.size()) - 1;
+    }
+
+    std::vector<int> gltfImageToMRTextureIndex(imported.images.size(), -1);
+    std::vector<bool> imageUsedAsMR(imported.images.size(), false);
+
+    for (const auto& importedMaterial : imported.materials)
+    {
+        if (importedMaterial.metallicRoughnessImageIndex >= 0 &&
+            importedMaterial.metallicRoughnessImageIndex < static_cast<int>(imageUsedAsMR.size()))
+        {
+            imageUsedAsMR[importedMaterial.metallicRoughnessImageIndex] = true;
+        }
+    }
+
+    for (size_t i = 0; i < imported.images.size(); ++i)
+    {
+        if (!imageUsedAsMR[i])
+            continue;
+
+        const auto& image = imported.images[i];
+
+        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
+            continue;
+
+        if (image.channels != 3 && image.channels != 4)
+            continue;
+
+        metallicRoughnessTextures.push_back(std::make_unique<Texture2D>(
+            vkContext,
+            bufferUtils,
+            imageUtils,
+            image.pixels.data(),
+            static_cast<uint32_t>(image.width),
+            static_cast<uint32_t>(image.height),
+            static_cast<uint32_t>(image.channels),
+            image.name.empty() ? ("glTF metallicRoughness image " + std::to_string(i)) : image.name,
+            vk::Format::eR8G8B8A8Unorm));
+
+        gltfImageToMRTextureIndex[i] = static_cast<int>(metallicRoughnessTextures.size()) - 1;
+    }
     
     std::vector<int> gltfImageToTextureIndex(imported.images.size(), -1);
 
@@ -140,10 +255,44 @@ void Renderer::init()
         material->setDoubleSided(importedMaterial.doubleSided);
         material->setMetallicFactor(importedMaterial.metallicFactor);
         material->setRoughnessFactor(importedMaterial.roughnessFactor);
+        material->setNormalScale(importedMaterial.normalScale);
+
+        Texture2D* assignedNormalTexture = defaultNormalTexture.get();
+
+        if (importedMaterial.normalImageIndex >= 0 &&
+            importedMaterial.normalImageIndex < static_cast<int>(gltfImageToNormalTextureIndex.size()))
+        {
+            int normalTextureIndex = gltfImageToNormalTextureIndex[importedMaterial.normalImageIndex];
+            if (normalTextureIndex >= 0 &&
+                normalTextureIndex < static_cast<int>(normalTextures.size()))
+            {
+                assignedNormalTexture = normalTextures[normalTextureIndex].get();
+            }
+        }
+
+        Texture2D* assignedMRTexture = defaultMetallicRoughnessTexture.get();
+
+        if (importedMaterial.metallicRoughnessImageIndex >= 0 &&
+            importedMaterial.metallicRoughnessImageIndex < static_cast<int>(gltfImageToMRTextureIndex.size()))
+        {
+            int mrTextureIndex = gltfImageToMRTextureIndex[importedMaterial.metallicRoughnessImageIndex];
+            if (mrTextureIndex >= 0 &&
+                mrTextureIndex < static_cast<int>(metallicRoughnessTextures.size()))
+            {
+                assignedMRTexture = metallicRoughnessTextures[mrTextureIndex].get();
+            }
+        }
+
+        material->setMetallicRoughnessTexture(assignedMRTexture);
+
+        material->setNormalTexture(assignedNormalTexture);
+
         materials.push_back(std::move(material));
 
 
     }
+
+
 
     if (imported.renderables.empty())
     {
@@ -357,15 +506,35 @@ void Renderer::createDescriptorSetLayout()
 
     // Set 1: per-material texture
     {
-        vk::DescriptorSetLayoutBinding samplerBinding{};
-        samplerBinding
+        vk::DescriptorSetLayoutBinding baseColorBinding{};
+        baseColorBinding
             .setBinding(0)
             .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
             .setDescriptorCount(1)
             .setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
+        vk::DescriptorSetLayoutBinding normalBinding{};
+        normalBinding
+            .setBinding(1)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        vk::DescriptorSetLayoutBinding metallicRoughnessBinding{};
+        metallicRoughnessBinding
+            .setBinding(2)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        std::array<vk::DescriptorSetLayoutBinding, 3> bindings = {
+            baseColorBinding,
+            normalBinding,
+            metallicRoughnessBinding
+        };
+
         vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.setBindings(samplerBinding);
+        layoutInfo.setBindings(bindings);
 
         materialDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
     }
@@ -682,7 +851,7 @@ void Renderer::createDescriptorPool()
 
     std::array poolSizes{
         vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT),
-        vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, static_cast<uint32_t>(materials.size()))
+        vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, static_cast<uint32_t>(materials.size() * 3))
     };
 
     vk::DescriptorPoolCreateInfo poolInfo{};
@@ -784,6 +953,7 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
 
     ubo.view = camera.getViewMatrix();
     ubo.proj = camera.getProjectionMatrix(aspect);
+    ubo.proj[1][1] *= -1.0f;
 
     ubo.lightDirection = glm::vec4(glm::normalize(lightDirection), 0.0f);
     ubo.lightColor = glm::vec4(lightColor, 1.0f);
@@ -816,10 +986,22 @@ void Renderer::createMaterialDescriptorSets()
 
     for (size_t i = 0; i < materials.size(); ++i)
     {
-        MaterialImageWrite materialWrite =
+        MaterialImageWrite baseColorWrite =
             materials[i]->makeImageWrite(*materialDescriptorSets[i], 0);
 
-        device.updateDescriptorSets(materialWrite.write, nullptr);
+        MaterialImageWrite normalWrite =
+            materials[i]->makeNormalImageWrite(*materialDescriptorSets[i], 1);
+
+        MaterialImageWrite metallicRoughnessWrite =
+            materials[i]->makeMetallicRoughnessImageWrite(*materialDescriptorSets[i], 2);
+
+        std::array<vk::WriteDescriptorSet, 3> descriptorWrites = {
+            baseColorWrite.write,
+            normalWrite.write,
+            metallicRoughnessWrite.write
+        };
+
+        device.updateDescriptorSets(descriptorWrites, nullptr);
     }
 }
 
@@ -1097,7 +1279,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             pushData.materialParams = glm::vec4(
                 renderable.getMaterial().getMetallicFactor(),
                 renderable.getMaterial().getRoughnessFactor(),
-                0.0f,
+                renderable.getMaterial().getNormalScale(),
                 0.0f);
 
             if (animateModel)
