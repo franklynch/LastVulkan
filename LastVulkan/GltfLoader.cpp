@@ -181,13 +181,16 @@ GltfSceneData GltfLoader::load(const std::string& path)
             materialData.normalScale = static_cast<float>(gltfMaterial.normalTexture.scale);
         }
 
-        std::cout << "Material: "
-            << (materialData.name.empty() ? "<unnamed>" : materialData.name)
-            << ", baseColorImageIndex = " << materialData.baseColorImageIndex
-            << ", metallicRoughnessImageIndex = " << materialData.metallicRoughnessImageIndex
-            << ", normalImageIndex = " << materialData.normalImageIndex
-            << ", normalScale = " << materialData.normalScale
-            << std::endl;
+  
+
+            std::cout << "Material: "
+                << (materialData.name.empty() ? "<unnamed>" : materialData.name)
+                << ", baseColorImageIndex = " << materialData.baseColorImageIndex
+                << ", metallicRoughnessImageIndex = " << materialData.metallicRoughnessImageIndex
+                << ", normalImageIndex = " << materialData.normalImageIndex
+                << ", normalScale = " << materialData.normalScale
+                << std::endl;
+  
 
         result.materials.push_back(materialData);
     }
@@ -285,7 +288,7 @@ GltfSceneData GltfLoader::load(const std::string& path)
                         v.texCoord = texcoords
                             ? glm::vec2(
                                 texcoords[i * 2 + 0],
-                                1.0f - texcoords[i * 2 + 1])
+                                texcoords[i * 2 + 1])
                             : glm::vec2(0.0f);
 
                         v.tangent = tangents

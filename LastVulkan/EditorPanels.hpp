@@ -14,6 +14,9 @@
 
 namespace EditorPanels
 {
+      
+    
+    
     void drawRendererPanel(
         VulkanContext& vkContext,
         vk::Extent2D swapChainExtent,
@@ -26,6 +29,8 @@ namespace EditorPanels
         float frameTimeMs,
         float fps,
         const Scene& scene);
+
+    
 
     void drawAnimationPanel(
         bool& animateModel,
@@ -75,6 +80,29 @@ namespace EditorPanels
         const Material* selectedMaterial,
         const Texture2D* selectedTexture);
 
+    void drawLightingPanel(
+        glm::vec3& lightDirection,
+        glm::vec3& lightColor,
+        glm::vec3& ambientColor);
+
+    void drawVerificationPanel(
+        const Scene& scene,
+        const EditorUiState& uiState,
+        const std::string& currentModelPath,
+        const Renderable* selectedRenderable,
+        const Material* selectedMaterial,
+        const Texture2D* baseColorTexture,
+        const Texture2D* normalTexture,
+        const Texture2D* metallicRoughnessTexture,
+        const glm::vec3& lightDirection,
+        const glm::vec3& lightColor,
+        const glm::vec3& ambientColor);
+
+    void drawSelectedMaterialPanel(
+        const Renderable* selectedRenderable,
+        Material* selectedMaterial,
+        const Texture2D* selectedTexture,
+        int selectedMaterialIndex);
 
     void drawDebugPanel(EditorUiState& uiState, bool wireframeSupported);
 

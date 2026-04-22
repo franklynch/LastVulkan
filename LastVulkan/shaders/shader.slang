@@ -11,9 +11,13 @@ struct UniformBuffer
     float4x4 view;
     float4x4 proj;
 
+    float4x4 invView;
+    float4x4 invProj;
+
     float4 lightDirection;
     float4 lightColor;
     float4 ambientColor;
+    float4 cameraPosition;
 };
 
 [[vk::binding(0, 0)]]
@@ -22,23 +26,47 @@ ConstantBuffer<UniformBuffer> ubo;
 struct PushConstants
 {
     float4x4 model;
+    float4x4 normalMatrix;
     float4 baseColorFactor;
     float4 materialParams; // x = metallic, y = roughness, z = normalScale
+    
+    
+    
+    
 };
 
 [[vk::push_constant]]
 PushConstants pc;
 
-// Set 1, Binding 0 = base color
+// ==========================
+// Set 1 — Material textures
+// ==========================
+
 [[vk::binding(0, 1)]]
 Sampler2D baseColorTexture;
 
-// Set 1, Binding 1 = normal
 [[vk::binding(1, 1)]]
 Sampler2D normalTexture;
 
 [[vk::binding(2, 1)]]
 Sampler2D metallicRoughnessTexture;
+
+
+// ==========================
+// Set 2 — IBL textures
+// ==========================
+
+[[vk::binding(0, 2)]]
+SamplerCube irradianceTexture;
+
+[[vk::binding(1, 2)]]
+SamplerCube prefilteredTexture;
+
+[[vk::binding(2, 2)]]
+Sampler2D brdfLutTexture;
+
+[[vk::binding(3, 2)]]
+SamplerCube environmentTexture;
 
 struct VSOutput
 {
@@ -47,6 +75,7 @@ struct VSOutput
     float3 fragNormal;
     float3 fragTangent;
     float3 fragBitangent;
+    float3 worldPos;
 };
 
 [shader("vertex")]
@@ -56,24 +85,28 @@ VSOutput vertMain(VSInput input)
 
     float4 worldPos = mul(pc.model, float4(input.inPosition, 1.0));
     output.pos = mul(ubo.proj, mul(ubo.view, worldPos));
+    output.worldPos = worldPos.xyz;
 
     output.fragTexCoord = input.inTexCoord;
 
-    float3 N = normalize(mul((float3x3)pc.model, input.inNormal));
-    float3 T = normalize(mul((float3x3)pc.model, input.inTangent.xyz));
-    float3 B = normalize(cross(N, T) * input.inTangent.w);
+    // Better normal matrix for world-space transform
+    float3x3 normalMatrix = (float3x3)pc.normalMatrix;
 
-    output.fragNormal = N;
-    output.fragTangent = T;
-    output.fragBitangent = B;
+    output.fragNormal = normalize(mul(normalMatrix, input.inNormal));
+    output.fragTangent = normalize(mul(normalMatrix, input.inTangent.xyz));
+    output.fragBitangent = normalize(
+        cross(output.fragNormal, output.fragTangent) * input.inTangent.w
+    );
 
     return output;
 }
+
 [shader("fragment")]
-float4 fragMain(VSOutput input) : SV_Target
+float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 {
-    float metallic = saturate(pc.materialParams.x);
-    float roughness = saturate(pc.materialParams.y);
+    float4 texColor = baseColorTexture.Sample(input.fragTexCoord);
+    float4 baseColor = texColor * pc.baseColorFactor;
+
     float normalScale = pc.materialParams.z;
 
     float3 tangentNormal = normalTexture.Sample(input.fragTexCoord).xyz * 2.0 - 1.0;
@@ -86,23 +119,32 @@ float4 fragMain(VSOutput input) : SV_Target
         normalize(input.fragNormal));
 
     float3 N = normalize(mul(TBN, tangentNormal));
+
+    if (!isFrontFace)
+        N = -N;
+
     float3 L = normalize(-ubo.lightDirection.xyz);
-
-    float3 mrSample = metallicRoughnessTexture.Sample(input.fragTexCoord).rgb;
-    roughness *= mrSample.g;
-    metallic *= mrSample.b;
-
     float NdotL = max(dot(N, L), 0.0);
 
-    float diffuseStrength = 1.0 - metallic;
-    float lightSharpness = lerp(1.5, 0.5, roughness);
+    //  FIX: sample MR texture
+    float3 mrSample = metallicRoughnessTexture.Sample(input.fragTexCoord).rgb;
 
-    float3 lighting =
-        ubo.ambientColor.xyz +
-        ubo.lightColor.xyz * NdotL * diffuseStrength * lightSharpness;
+    float roughness = pc.materialParams.y * mrSample.g;
+    float metallic  = pc.materialParams.x * mrSample.b;
 
-    float4 texColor = baseColorTexture.Sample(input.fragTexCoord);
-    float4 baseColor = texColor * pc.baseColorFactor;
+    float specPower = lerp(64.0, 4.0, roughness);
 
-    return float4(baseColor.rgb * lighting, baseColor.a);
+    float3 specColor = lerp(float3(0.04, 0.04, 0.04), baseColor.rgb, metallic);
+
+    float3 V = normalize(ubo.cameraPosition.xyz - input.worldPos);
+    float3 H = normalize(V + L);
+
+    float spec = pow(max(dot(N, H), 0.0), specPower);
+
+    float3 color =
+        baseColor.rgb * (0.3 + 1.2 * NdotL) +
+        specColor * spec * NdotL * 0.5;
+
+    return float4(color, 1.0);
+
 }

@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <cstdio>
 
+#include <stb_image.h>
+
 #include "EditorPanels.hpp"
 #include "GltfLoader.hpp"
 
@@ -105,11 +107,13 @@ void Renderer::init()
     camera.setFov(cameraFov);
     camera.setNearFar(cameraNear, cameraFar);
 
+    currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
+    std::cout << "Loading model: " << currentModelPath << std::endl;
+
     GltfLoader loader;
-    
-    
-    GltfSceneData imported = loader.load("models/DamagedHelmet/glTF/DamagedHelmet.gltf");
-        
+    GltfSceneData imported = loader.load(currentModelPath);
+
+       
 
     
 
@@ -159,6 +163,7 @@ void Renderer::init()
     }
 
     std::vector<int> gltfImageToMRTextureIndex(imported.images.size(), -1);
+
     std::vector<bool> imageUsedAsMR(imported.images.size(), false);
 
     for (const auto& importedMaterial : imported.materials)
@@ -229,6 +234,8 @@ void Renderer::init()
 
         gltfImageToTextureIndex[i] = static_cast<int>(textures.size()) - 1;
 
+        
+
 
     }
 
@@ -256,6 +263,9 @@ void Renderer::init()
         material->setMetallicFactor(importedMaterial.metallicFactor);
         material->setRoughnessFactor(importedMaterial.roughnessFactor);
         material->setNormalScale(importedMaterial.normalScale);
+
+        material->setAlphaMode(importedMaterial.alphaMode);
+        material->setAlphaCutoff(importedMaterial.alphaCutoff);
 
         Texture2D* assignedNormalTexture = defaultNormalTexture.get();
 
@@ -288,6 +298,8 @@ void Renderer::init()
         material->setNormalTexture(assignedNormalTexture);
 
         materials.push_back(std::move(material));
+
+        std::cout << "Loaded textures: " << textures.size() << std::endl;
 
 
     }
@@ -349,6 +361,25 @@ void Renderer::init()
     createDescriptorPool();
     createDescriptorSets();
     createMaterialDescriptorSets();
+
+    createFallbackIBLResources();
+
+    createEnvironmentCubemap({
+    "assets/skybox/right.jpg",
+    "assets/skybox/left.jpg",
+    "assets/skybox/top.jpg",
+    "assets/skybox/bottom.jpg",
+    "assets/skybox/front.jpg",
+    "assets/skybox/back.jpg"
+    
+    
+        });
+
+
+    updateIBLDescriptorSet();
+       
+    createSkyboxPipeline();
+     
     createCommandBuffers();
     createSyncObjects();
     initImGui();
@@ -357,9 +388,13 @@ void Renderer::init()
 void Renderer::cleanupSwapChain()
 {
     solidPipeline = nullptr;
+    solidDoubleSidedPipeline = nullptr;
     wireframePipeline = nullptr;
-
+    wireframeDoubleSidedPipeline = nullptr;
     pipelineLayout = nullptr;
+
+    skyboxPipeline = nullptr;
+    skyboxPipelineLayout = nullptr;
 
     colorImageView = nullptr;
     colorImageMemory = nullptr;
@@ -407,6 +442,7 @@ void Renderer::recreateSwapChain()
     createColorResources();
     createDepthResources();
     createGraphicsPipeline();
+    createSkyboxPipeline();
 
     // Rebuild per-image semaphores for the new swapchain.
     renderFinishedSemaphores.clear();
@@ -504,7 +540,7 @@ void Renderer::createDescriptorSetLayout()
         frameDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
     }
 
-    // Set 1: per-material texture
+    // Set 1: per-material textures
     {
         vk::DescriptorSetLayoutBinding baseColorBinding{};
         baseColorBinding
@@ -538,14 +574,60 @@ void Renderer::createDescriptorSetLayout()
 
         materialDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
     }
+
+    // Set 2: IBL textures
+    {
+        vk::DescriptorSetLayoutBinding irradianceBinding{};
+        irradianceBinding
+            .setBinding(0)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        vk::DescriptorSetLayoutBinding prefilteredBinding{};
+        prefilteredBinding
+            .setBinding(1)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        vk::DescriptorSetLayoutBinding brdfLutBinding{};
+        brdfLutBinding
+            .setBinding(2)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        vk::DescriptorSetLayoutBinding environmentBinding{};
+        environmentBinding
+            .setBinding(3)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        std::array<vk::DescriptorSetLayoutBinding, 4> bindings = {
+            irradianceBinding,
+            prefilteredBinding,
+            brdfLutBinding,
+            environmentBinding
+        };
+
+        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+        layoutInfo.setBindings(bindings);
+
+        iblDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
+    }
 }
 
 void Renderer::createGraphicsPipeline()
 {
     auto& device = vkContext.getDevice();
 
-    vk::raii::ShaderModule vertShaderModule = createShaderModule(readFile("shaders/vert.spv"));
-    vk::raii::ShaderModule fragShaderModule = createShaderModule(readFile("shaders/frag.spv"));
+    vk::raii::ShaderModule vertShaderModule =
+        createShaderModule(readFile("shaders/vert.spv"));
+
+    vk::raii::ShaderModule fragShaderModule =
+        createShaderModule(readFile("shaders/frag.spv"));
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo
@@ -586,7 +668,6 @@ void Renderer::createGraphicsPipeline()
     rasterizer
         .setDepthClampEnable(VK_FALSE)
         .setRasterizerDiscardEnable(VK_FALSE)
-        .setCullMode(vk::CullModeFlagBits::eBack)
         .setFrontFace(vk::FrontFace::eCounterClockwise)
         .setDepthBiasEnable(VK_FALSE)
         .setLineWidth(1.0f);
@@ -611,7 +692,8 @@ void Renderer::createGraphicsPipeline()
             vk::ColorComponentFlagBits::eR |
             vk::ColorComponentFlagBits::eG |
             vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA);
+            vk::ColorComponentFlagBits::eA
+        );
 
     vk::PipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending
@@ -635,9 +717,14 @@ void Renderer::createGraphicsPipeline()
         .setOffset(0)
         .setSize(sizeof(PushConstantData));
 
-    std::array<vk::DescriptorSetLayout, 2> setLayouts = {
+    // Main scene pipeline layout:
+    // set 0 = frame UBO
+    // set 1 = material textures
+    // set 2 = IBL textures
+    std::array<vk::DescriptorSetLayout, 3> setLayouts = {
         *frameDescriptorSetLayout,
-        *materialDescriptorSetLayout
+        *materialDescriptorSetLayout,
+        *iblDescriptorSetLayout
     };
 
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -669,25 +756,55 @@ void Renderer::createGraphicsPipeline()
         .setColorAttachmentFormats(swapChainSurfaceFormat.format)
         .setDepthAttachmentFormat(depthFormat);
 
-    // Solid pipeline
-    rasterizer.setPolygonMode(vk::PolygonMode::eFill);
+    // Filled, culled
+    rasterizer
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eBack);
 
     solidPipeline = vk::raii::Pipeline(
         device,
         nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
 
-    // Wireframe pipeline
+    // Filled, double-sided
+    rasterizer
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eNone);
+
+    solidDoubleSidedPipeline = vk::raii::Pipeline(
+        device,
+        nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
+
+    // Wireframe variants
     wireframePipeline = nullptr;
+    wireframeDoubleSidedPipeline = nullptr;
 
     if (vkContext.isFillModeNonSolidEnabled())
     {
-        rasterizer.setPolygonMode(vk::PolygonMode::eLine);
+        // Wireframe, culled
+        rasterizer
+            .setPolygonMode(vk::PolygonMode::eLine)
+            .setCullMode(vk::CullModeFlagBits::eBack);
 
         wireframePipeline = vk::raii::Pipeline(
             device,
             nullptr,
-            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        );
+
+        // Wireframe, double-sided
+        rasterizer
+            .setPolygonMode(vk::PolygonMode::eLine)
+            .setCullMode(vk::CullModeFlagBits::eNone);
+
+        wireframeDoubleSidedPipeline = vk::raii::Pipeline(
+            device,
+            nullptr,
+            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        );
     }
 }
 
@@ -849,15 +966,22 @@ void Renderer::createDescriptorPool()
 {
     cleanupDescriptorResources();
 
+    uint32_t materialCount = static_cast<uint32_t>(materials.size());
+
     std::array poolSizes{
-        vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT),
-        vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, static_cast<uint32_t>(materials.size() * 3))
+        vk::DescriptorPoolSize(
+            vk::DescriptorType::eUniformBuffer,
+            MAX_FRAMES_IN_FLIGHT),
+
+        vk::DescriptorPoolSize(
+            vk::DescriptorType::eCombinedImageSampler,
+            materialCount * 3 + 4) // +4 for IBL
     };
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo
         .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(MAX_FRAMES_IN_FLIGHT + static_cast<uint32_t>(materials.size()))
+        .setMaxSets(MAX_FRAMES_IN_FLIGHT + materialCount + 1) // +1 for IBL set
         .setPoolSizes(poolSizes);
 
     descriptorPool = vk::raii::DescriptorPool(vkContext.getDevice(), poolInfo);
@@ -866,6 +990,10 @@ void Renderer::createDescriptorPool()
 void Renderer::createDescriptorSets()
 {
     auto& device = vkContext.getDevice();
+
+    // =========================
+    // Set 0 — Frame UBO sets
+    // =========================
 
     std::vector<vk::DescriptorSetLayout> layouts(
         MAX_FRAMES_IN_FLIGHT,
@@ -891,13 +1019,29 @@ void Renderer::createDescriptorSets()
         uboWrite
             .setDstSet(*frameDescriptorSets[i])
             .setDstBinding(0)
-            .setDstArrayElement(0)
             .setDescriptorType(vk::DescriptorType::eUniformBuffer)
             .setDescriptorCount(1)
             .setBufferInfo(bufferInfo);
 
         device.updateDescriptorSets(uboWrite, nullptr);
     }
+
+    // =========================
+    // Set 2 — IBL descriptor set
+    // =========================
+
+    vk::DescriptorSetAllocateInfo iblAllocInfo{};
+    iblAllocInfo
+        .setDescriptorPool(*descriptorPool)
+        .setSetLayouts(*iblDescriptorSetLayout);
+
+    vk::raii::DescriptorSets iblSets(device, iblAllocInfo);
+
+    iblDescriptorSet = std::move(iblSets.front());
+
+    // NOTE:
+    // We do NOT update the descriptors here yet unless
+    // fallback textures already exist.
 }
 
 void Renderer::createSyncObjects()
@@ -953,14 +1097,22 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
 
     ubo.view = camera.getViewMatrix();
     ubo.proj = camera.getProjectionMatrix(aspect);
-    ubo.proj[1][1] *= -1.0f;
+
+    ubo.invView = glm::inverse(ubo.view);
+    ubo.invProj = glm::inverse(ubo.proj);
 
     ubo.lightDirection = glm::vec4(glm::normalize(lightDirection), 0.0f);
-    ubo.lightColor = glm::vec4(lightColor, 1.0f);
-    ubo.ambientColor = glm::vec4(ambientColor, 1.0f);
+    ubo.lightColor = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f);
+    ubo.ambientColor = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+
+    
+    ubo.cameraPosition = glm::vec4(camera.getPosition(), 1.0f);
 
     std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
-}
+
+    
+
+    };
 
 void Renderer::createMaterialDescriptorSets()
 {
@@ -1144,179 +1296,224 @@ void Renderer::drawFrame()
 }
 
 void Renderer::recordCommandBuffer(uint32_t imageIndex)
+{
+    auto& commandBuffer = commandBuffers[frameIndex];
+    commandBuffer.begin(vk::CommandBufferBeginInfo{});
+
+    vk::CommandBuffer cmd = *commandBuffer;
+    const auto& extent = swapChainExtent;
+
+    transitionToColorAttachment(
+        cmd,
+        *colorImage,
+        vk::ImageLayout::eUndefined);
+
+    vk::ImageLayout swapChainOldLayout =
+        swapChainImageInitialized[imageIndex]
+        ? vk::ImageLayout::ePresentSrcKHR
+        : vk::ImageLayout::eUndefined;
+
+    transitionToColorAttachment(
+        cmd,
+        swapChainImages[imageIndex],
+        swapChainOldLayout);
+
+    transitionToDepthAttachment(
+        cmd,
+        *depthImage,
+        depthAspect);
+
+    vk::ClearValue clearColorValue = vk::ClearColorValue(
+        clearColor.r,
+        clearColor.g,
+        clearColor.b,
+        clearColor.a);
+
+    vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
+
+    vk::RenderingAttachmentInfo colorAttachmentInfo{};
+    colorAttachmentInfo
+        .setImageView(*colorImageView)
+        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+        .setClearValue(clearColorValue)
+        .setResolveMode(vk::ResolveModeFlagBits::eAverage)
+        .setResolveImageView(*swapChainImageViews[imageIndex])
+        .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal);
+
+    vk::RenderingAttachmentInfo depthAttachmentInfo{};
+    depthAttachmentInfo
+        .setImageView(*depthImageView)
+        .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+        .setClearValue(clearDepth);
+
+    vk::RenderingInfo renderingInfo{};
+    renderingInfo
+        .setRenderArea(vk::Rect2D{}.setOffset(vk::Offset2D{ 0, 0 }).setExtent(extent))
+        .setLayerCount(1)
+        .setColorAttachments(colorAttachmentInfo)
+        .setPDepthAttachment(&depthAttachmentInfo);
+
+    commandBuffer.beginRendering(renderingInfo);
+
+    commandBuffer.setViewport(
+        0,
+        vk::Viewport(
+            0.0f,
+            0.0f,
+            static_cast<float>(extent.width),
+            static_cast<float>(extent.height),
+            0.0f,
+            1.0f));
+
+    commandBuffer.setScissor(
+        0,
+        vk::Rect2D(vk::Offset2D(0, 0), extent));
+
+    // Draw skybox first
+    drawSkybox(commandBuffer, imageIndex);
+
+    for (auto& renderable : scene.getRenderables())
     {
-        auto& commandBuffer = commandBuffers[frameIndex];
-        commandBuffer.begin(vk::CommandBufferBeginInfo{});
+        commandBuffer.bindVertexBuffers(
+            0,
+            *renderable.getMesh().getVertexBuffer(),
+            { 0 });
 
-        vk::CommandBuffer cmd = *commandBuffer;
-        const auto& extent = swapChainExtent;
+        commandBuffer.bindIndexBuffer(
+            *renderable.getMesh().getIndexBuffer(),
+            0,
+            vk::IndexType::eUint32);
 
-        transitionToColorAttachment(
-            cmd,
-            *colorImage,
-            vk::ImageLayout::eUndefined);
+        Material& renderableMaterial = renderable.getMaterial();
 
-        vk::ImageLayout swapChainOldLayout =
-            swapChainImageInitialized[imageIndex]
-            ? vk::ImageLayout::ePresentSrcKHR
-            : vk::ImageLayout::eUndefined;
+        auto materialIt = std::find_if(
+            materials.begin(),
+            materials.end(),
+            [&](const std::unique_ptr<Material>& candidate)
+            {
+                return candidate.get() == &renderableMaterial;
+            });
 
-        transitionToColorAttachment(
-            cmd,
-            swapChainImages[imageIndex],
-            swapChainOldLayout);
+        if (materialIt == materials.end())
+        {
+            throw std::runtime_error("renderable material not found in renderer materials");
+        }
 
-        transitionToDepthAttachment(
-            cmd,
-            *depthImage,
-            depthAspect);
-
-        vk::ClearValue clearColorValue = vk::ClearColorValue(
-            clearColor.r,
-            clearColor.g,
-            clearColor.b,
-            clearColor.a);
-
-        vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
-
-        vk::RenderingAttachmentInfo colorAttachmentInfo{};
-        colorAttachmentInfo
-            .setImageView(*colorImageView)
-            .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-            .setLoadOp(vk::AttachmentLoadOp::eClear)
-            .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-            .setClearValue(clearColorValue)
-            .setResolveMode(vk::ResolveModeFlagBits::eAverage)
-            .setResolveImageView(*swapChainImageViews[imageIndex])
-            .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal);
-
-        vk::RenderingAttachmentInfo depthAttachmentInfo{};
-        depthAttachmentInfo
-            .setImageView(*depthImageView)
-            .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-            .setLoadOp(vk::AttachmentLoadOp::eClear)
-            .setStoreOp(vk::AttachmentStoreOp::eDontCare)
-            .setClearValue(clearDepth);
-
-        vk::RenderingInfo renderingInfo{};
-        renderingInfo
-            .setRenderArea(vk::Rect2D{}.setOffset(vk::Offset2D{ 0, 0 }).setExtent(extent))
-            .setLayerCount(1)
-            .setColorAttachments(colorAttachmentInfo)
-            .setPDepthAttachment(&depthAttachmentInfo);
-
-        commandBuffer.beginRendering(renderingInfo);
+        size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
 
         vk::Pipeline activePipeline = *solidPipeline;
 
-        if (uiState.wireframeRequested && *wireframePipeline)
+        if (uiState.wireframeRequested)
         {
-            activePipeline = *wireframePipeline;
+            if (renderableMaterial.isDoubleSided())
+            {
+                if (wireframeDoubleSidedPipeline != nullptr)
+                {
+                    activePipeline = *wireframeDoubleSidedPipeline;
+                }
+                else
+                {
+                    activePipeline = *solidDoubleSidedPipeline;
+                }
+            }
+            else
+            {
+                if (wireframePipeline != nullptr)
+                {
+                    activePipeline = *wireframePipeline;
+                }
+                else
+                {
+                    activePipeline = *solidPipeline;
+                }
+            }
+        }
+        else
+        {
+            if (renderableMaterial.isDoubleSided())
+            {
+                activePipeline = *solidDoubleSidedPipeline;
+            }
+            else
+            {
+                activePipeline = *solidPipeline;
+            }
         }
 
-        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, activePipeline);
+        commandBuffer.bindPipeline(
+            vk::PipelineBindPoint::eGraphics,
+            activePipeline);
 
-        commandBuffer.setViewport(
-            0,
-            vk::Viewport(
-                0.0f,
-                0.0f,
-                static_cast<float>(extent.width),
-                static_cast<float>(extent.height),
-                0.0f,
-                1.0f));
-
-        commandBuffer.setScissor(
-            0,
-            vk::Rect2D(vk::Offset2D(0, 0), extent));
+        // Main scene pipeline layout:
+        // set 0 = frame UBO
+        // set 1 = material textures
+        // set 2 = IBL textures
+        std::array<vk::DescriptorSet, 3> sets = {
+            *frameDescriptorSets[frameIndex],
+            *materialDescriptorSets[materialIndex],
+            *iblDescriptorSet
+        };
 
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
             *pipelineLayout,
             0,
-            *frameDescriptorSets[frameIndex],
-            nullptr);
+            sets,
+            {});
 
-        for (auto& renderable : scene.getRenderables())
+        PushConstantData pushData{};
+        pushData.model = renderable.getTransform().toMatrix();
+
+        glm::mat3 normalMatrix =
+            glm::transpose(glm::inverse(glm::mat3(pushData.model)));
+
+        pushData.normalMatrix = normalMatrix;
+        pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
+        pushData.materialParams = glm::vec4(
+            renderableMaterial.getMetallicFactor(),
+            renderableMaterial.getRoughnessFactor(),
+            renderableMaterial.getNormalScale(),
+            0.0f);
+
+        if (animateModel)
         {
-            commandBuffer.bindVertexBuffers(
-                0,
-                *renderable.getMesh().getVertexBuffer(),
-                { 0 });
-
-            commandBuffer.bindIndexBuffer(
-                *renderable.getMesh().getIndexBuffer(),
-                0,
-                vk::IndexType::eUint32);
-
-            Material& renderableMaterial = renderable.getMaterial();
-
-            auto materialIt = std::find_if(
-                materials.begin(),
-                materials.end(),
-                [&](const std::unique_ptr<Material>& candidate)
-                {
-                    return candidate.get() == &renderableMaterial;
-                });
-
-            if (materialIt == materials.end())
-            {
-                throw std::runtime_error("renderable material not found in renderer materials");
-            }
-
-            size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
-
-            commandBuffer.bindDescriptorSets(
-                vk::PipelineBindPoint::eGraphics,
-                *pipelineLayout,
-                1,
-                *materialDescriptorSets[materialIndex],
-                nullptr);
-
-            PushConstantData pushData{};
-            pushData.model = renderable.getTransform().toMatrix();
-            pushData.baseColorFactor = renderable.getMaterial().getBaseColorFactor();
-            pushData.materialParams = glm::vec4(
-                renderable.getMaterial().getMetallicFactor(),
-                renderable.getMaterial().getRoughnessFactor(),
-                renderable.getMaterial().getNormalScale(),
-                0.0f);
-
-            if (animateModel)
-            {
-                pushData.model = glm::rotate(
-                    pushData.model,
-                    currentAnimationAngle,
-                    glm::vec3(0.0f, 0.0f, 1.0f));
-            }
-
-            cmd.pushConstants(
-                *pipelineLayout,
-                vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
-                0,
-                sizeof(PushConstantData),
-                &pushData);
-
-            commandBuffer.drawIndexed(
-                renderable.getMesh().getIndexCount(),
-                1,
-                0,
-                0,
-                0);
+            pushData.model = glm::rotate(
+                pushData.model,
+                currentAnimationAngle,
+                glm::vec3(0.0f, 0.0f, 1.0f));
         }
 
-        renderImGui(*commandBuffer);
+        cmd.pushConstants(
+            *pipelineLayout,
+            vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+            0,
+            sizeof(PushConstantData),
+            &pushData);
 
-        commandBuffer.endRendering();
-
-        transitionToPresent(
-            cmd,
-            swapChainImages[imageIndex]);
-
-        swapChainImageInitialized[imageIndex] = true;
-
-        commandBuffer.end();
+        commandBuffer.drawIndexed(
+            renderable.getMesh().getIndexCount(),
+            1,
+            0,
+            0,
+            0);
     }
+
+    renderImGui(*commandBuffer);
+
+    commandBuffer.endRendering();
+
+    transitionToPresent(
+        cmd,
+        swapChainImages[imageIndex]);
+
+    swapChainImageInitialized[imageIndex] = true;
+
+    commandBuffer.end();
+}
 
 
 
@@ -1408,7 +1605,7 @@ void Renderer::transitionToDepthAttachment(
 }
 
 
-void Renderer::resetDefaultSceneLayout()
+ void Renderer::resetDefaultSceneLayout()
 {
     auto& renderables = scene.getRenderables();
 
@@ -1446,10 +1643,234 @@ void Renderer::resetDefaultSceneLayout()
 }
 
 
+ void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePaths)
+ {
+     auto& device = vkContext.getDevice();
+
+     int texWidth = 0;
+     int texHeight = 0;
+     int texChannels = 0;
+
+     std::vector<stbi_uc*> facePixels(6, nullptr);
+
+     for (size_t i = 0; i < 6; ++i)
+     {
+         int w = 0, h = 0, c = 0;
+         facePixels[i] = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
+         if (!facePixels[i])
+         {
+             throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
+         }
+
+         if (i == 0)
+         {
+             texWidth = w;
+             texHeight = h;
+             texChannels = 4;
+         }
+         else
+         {
+             if (w != texWidth || h != texHeight)
+             {
+                 throw std::runtime_error("Cubemap faces must all have the same dimensions");
+             }
+         }
+     }
+
+     const vk::DeviceSize faceSize =
+         static_cast<vk::DeviceSize>(texWidth) *
+         static_cast<vk::DeviceSize>(texHeight) * 4;
+
+     const vk::DeviceSize totalSize = faceSize * 6;
+
+     vk::raii::Buffer stagingBuffer{ nullptr };
+     vk::raii::DeviceMemory stagingMemory{ nullptr };
+
+     bufferUtils.createBuffer(
+         totalSize,
+         vk::BufferUsageFlagBits::eTransferSrc,
+         vk::MemoryPropertyFlagBits::eHostVisible |
+         vk::MemoryPropertyFlagBits::eHostCoherent,
+         stagingBuffer,
+         stagingMemory
+     );
+
+     void* mapped = stagingMemory.mapMemory(0, totalSize);
+     unsigned char* dst = static_cast<unsigned char*>(mapped);
+
+     for (size_t i = 0; i < 6; ++i)
+     {
+         std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
+     }
+
+     stagingMemory.unmapMemory();
+
+     for (auto* pixels : facePixels)
+     {
+         stbi_image_free(pixels);
+     }
+
+     const vk::Format format = vk::Format::eR8G8B8A8Srgb;
+
+     vk::ImageCreateInfo imageInfo{};
+     imageInfo
+         .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+         .setImageType(vk::ImageType::e2D)
+         .setFormat(format)
+         .setExtent(vk::Extent3D{
+             static_cast<uint32_t>(texWidth),
+             static_cast<uint32_t>(texHeight),
+             1
+             })
+         .setMipLevels(1)
+         .setArrayLayers(6)
+         .setSamples(vk::SampleCountFlagBits::e1)
+         .setTiling(vk::ImageTiling::eOptimal)
+         .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+         .setSharingMode(vk::SharingMode::eExclusive)
+         .setInitialLayout(vk::ImageLayout::eUndefined);
+
+     environmentCubeImage = vk::raii::Image(device, imageInfo);
+
+     vk::MemoryRequirements memReq = environmentCubeImage.getMemoryRequirements();
+
+     vk::MemoryAllocateInfo allocInfo{};
+     allocInfo
+         .setAllocationSize(memReq.size)
+         .setMemoryTypeIndex(
+             bufferUtils.findMemoryType(
+                 memReq.memoryTypeBits,
+                 vk::MemoryPropertyFlagBits::eDeviceLocal
+             )
+         );
+
+     environmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
+     environmentCubeImage.bindMemory(*environmentCubeMemory, 0);
+
+     auto cmd = bufferUtils.beginSingleTimeCommands();
+
+     vk::ImageMemoryBarrier toTransfer{};
+     toTransfer
+         .setOldLayout(vk::ImageLayout::eUndefined)
+         .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+         .setImage(*environmentCubeImage)
+         .setSubresourceRange(
+             vk::ImageSubresourceRange{}
+             .setAspectMask(vk::ImageAspectFlagBits::eColor)
+             .setBaseMipLevel(0)
+             .setLevelCount(1)
+             .setBaseArrayLayer(0)
+             .setLayerCount(6))
+         .setSrcAccessMask({})
+         .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+     cmd.pipelineBarrier(
+         vk::PipelineStageFlagBits::eTopOfPipe,
+         vk::PipelineStageFlagBits::eTransfer,
+         {},
+         nullptr,
+         nullptr,
+         toTransfer
+     );
+
+     std::array<vk::BufferImageCopy, 6> copyRegions{};
+     for (uint32_t face = 0; face < 6; ++face)
+     {
+         copyRegions[face]
+             .setBufferOffset(face * faceSize)
+             .setBufferRowLength(0)
+             .setBufferImageHeight(0)
+             .setImageSubresource(
+                 vk::ImageSubresourceLayers{}
+                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                 .setMipLevel(0)
+                 .setBaseArrayLayer(face)
+                 .setLayerCount(1))
+             .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+             .setImageExtent(vk::Extent3D{
+                 static_cast<uint32_t>(texWidth),
+                 static_cast<uint32_t>(texHeight),
+                 1
+                 });
+     }
+
+     cmd.copyBufferToImage(
+         *stagingBuffer,
+         *environmentCubeImage,
+         vk::ImageLayout::eTransferDstOptimal,
+         copyRegions
+     );
+
+     vk::ImageMemoryBarrier toShaderRead{};
+     toShaderRead
+         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+         .setImage(*environmentCubeImage)
+         .setSubresourceRange(
+             vk::ImageSubresourceRange{}
+             .setAspectMask(vk::ImageAspectFlagBits::eColor)
+             .setBaseMipLevel(0)
+             .setLevelCount(1)
+             .setBaseArrayLayer(0)
+             .setLayerCount(6))
+         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+         .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+     cmd.pipelineBarrier(
+         vk::PipelineStageFlagBits::eTransfer,
+         vk::PipelineStageFlagBits::eFragmentShader,
+         {},
+         nullptr,
+         nullptr,
+         toShaderRead
+     );
+
+     bufferUtils.endSingleTimeCommands(cmd);
+
+     vk::ImageViewCreateInfo viewInfo{};
+     viewInfo
+         .setImage(*environmentCubeImage)
+         .setViewType(vk::ImageViewType::eCube)
+         .setFormat(format)
+         .setSubresourceRange(
+             vk::ImageSubresourceRange{}
+             .setAspectMask(vk::ImageAspectFlagBits::eColor)
+             .setBaseMipLevel(0)
+             .setLevelCount(1)
+             .setBaseArrayLayer(0)
+             .setLayerCount(6));
+
+     environmentCubeView = vk::raii::ImageView(device, viewInfo);
+
+     vk::SamplerCreateInfo samplerInfo{};
+     samplerInfo
+         .setMagFilter(vk::Filter::eLinear)
+         .setMinFilter(vk::Filter::eLinear)
+         .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+         .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+         .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+         .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+         .setAnisotropyEnable(VK_FALSE)
+         .setMaxAnisotropy(1.0f)
+         .setMinLod(0.0f)
+         .setMaxLod(0.0f)
+         .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+         .setUnnormalizedCoordinates(VK_FALSE);
+
+     environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
+ }
+
+
 void Renderer::cleanupDescriptorResources()
 {
+    iblDescriptorSet = nullptr;
     materialDescriptorSets.clear();
     frameDescriptorSets.clear();
+
     descriptorPool = nullptr;
 }
 
@@ -1564,6 +1985,8 @@ void Renderer::updateCameraControls()
     camera.setNearFar(cameraNear, cameraFar);
 }
 
+
+
 void Renderer::focusSelectedRenderable()
 {
     Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
@@ -1586,6 +2009,24 @@ Material* Renderer::getSelectedRenderableMaterial()
     return &selected->getMaterial();
 }
 
+
+glm::vec3 Renderer::computeSceneCenter() const
+{
+    if (scene.empty())
+    {
+        return glm::vec3(0.0f);
+    }
+
+    glm::vec3 sum(0.0f);
+
+    for (const auto& renderable : scene.getRenderables())
+    {
+        sum += renderable.getTransform().position;
+    }
+
+    return sum / static_cast<float>(scene.size());
+}
+
 int Renderer::getMaterialIndex(const Material& material) const
 {
     auto it = std::find_if(
@@ -1604,15 +2045,484 @@ int Renderer::getMaterialIndex(const Material& material) const
     return static_cast<int>(std::distance(materials.begin(), it));
 }
 
-
-
-
-
 bool Renderer::isWireframeSupported() const
 {
     return vkContext.isFillModeNonSolidEnabled();
 }
 
+void Renderer::createFallbackIBLResources()
+{
+    createFallbackBrdfLut();
+    createFallbackBlackCube();
+}
+
+void Renderer::createFallbackBrdfLut()
+{
+    const unsigned char blackPixel[4] = { 0, 0, 0, 255 };
+
+    Texture2D::SamplerOptions samplerOptions{};
+    samplerOptions.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+    samplerOptions.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+    samplerOptions.addressModeW = vk::SamplerAddressMode::eClampToEdge;
+    samplerOptions.enableAnisotropy = false;
+    samplerOptions.maxLod = 0.0f;
+
+    fallbackBrdfLut = std::make_unique<Texture2D>(
+        vkContext,
+        bufferUtils,
+        imageUtils,
+        blackPixel,
+        1,
+        1,
+        4,
+        "Fallback BRDF LUT",
+        vk::Format::eR8G8B8A8Unorm,
+        samplerOptions
+    );
+}
+
+void Renderer::createFallbackBlackCube()
+{
+    auto& device = vkContext.getDevice();
+
+    const vk::Format format = vk::Format::eR8G8B8A8Unorm;
+
+    const std::array<unsigned char, 24> blackFaces = {
+        0, 0, 0, 255,
+        0, 0, 0, 255,
+        0, 0, 0, 255,
+        0, 0, 0, 255,
+        0, 0, 0, 255,
+        0, 0, 0, 255
+    };
+
+    vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(blackFaces.size());
+
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
+
+    bufferUtils.createBuffer(
+        imageSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory
+    );
+
+    void* mapped = stagingMemory.mapMemory(0, imageSize);
+    std::memcpy(mapped, blackFaces.data(), static_cast<size_t>(imageSize));
+    stagingMemory.unmapMemory();
+
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(format)
+        .setExtent(vk::Extent3D{ 1, 1, 1 })
+        .setMipLevels(1)
+        .setArrayLayers(6)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
+
+    fallbackBlackCubeImage = vk::raii::Image(device, imageInfo);
+
+    vk::MemoryRequirements memReq = fallbackBlackCubeImage.getMemoryRequirements();
+
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memReq.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memReq.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            )
+        );
+
+    fallbackBlackCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
+    fallbackBlackCubeImage.bindMemory(*fallbackBlackCubeMemory, 0);
+
+    auto cmd = bufferUtils.beginSingleTimeCommands();
+
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*fallbackBlackCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer
+    );
+
+    std::array<vk::BufferImageCopy, 6> copyRegions{};
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        copyRegions[face]
+            .setBufferOffset(face * 4)
+            .setBufferRowLength(0)
+            .setBufferImageHeight(0)
+            .setImageSubresource(
+                vk::ImageSubresourceLayers{}
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setMipLevel(0)
+                .setBaseArrayLayer(face)
+                .setLayerCount(1))
+            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+            .setImageExtent(vk::Extent3D{ 1, 1, 1 });
+    }
+
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *fallbackBlackCubeImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegions
+    );
+
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*fallbackBlackCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead
+    );
+
+    bufferUtils.endSingleTimeCommands(cmd);
+
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*fallbackBlackCubeImage)
+        .setViewType(vk::ImageViewType::eCube)
+        .setFormat(format)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6));
+
+    fallbackBlackCubeView = vk::raii::ImageView(device, viewInfo);
+
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setAnisotropyEnable(VK_FALSE)
+        .setMaxAnisotropy(1.0f)
+        .setMinLod(0.0f)
+        .setMaxLod(0.0f)
+        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+        .setUnnormalizedCoordinates(VK_FALSE);
+
+    fallbackBlackCubeSampler = vk::raii::Sampler(device, samplerInfo);
+}
+
+void Renderer::updateIBLDescriptorSet()
+{
+    if (iblDescriptorSet == nullptr)
+    {
+        throw std::runtime_error("updateIBLDescriptorSet: iblDescriptorSet is null");
+    }
+
+    if (fallbackBlackCubeView == nullptr || fallbackBlackCubeSampler == nullptr)
+    {
+        throw std::runtime_error("updateIBLDescriptorSet: fallback black cube is not initialized");
+    }
+
+    if (!fallbackBrdfLut ||
+        fallbackBrdfLut->getImageView() == nullptr ||
+        fallbackBrdfLut->getSampler() == nullptr)
+    {
+        throw std::runtime_error("updateIBLDescriptorSet: fallback BRDF LUT is not initialized");
+    }
+
+    if (environmentCubeView == nullptr || environmentCubeSampler == nullptr)
+    {
+        throw std::runtime_error("updateIBLDescriptorSet: environment cubemap is not initialized");
+    }
+
+    auto& device = vkContext.getDevice();
+
+    vk::DescriptorImageInfo irradianceInfo{};
+    irradianceInfo
+        .setSampler(*fallbackBlackCubeSampler)
+        .setImageView(*fallbackBlackCubeView)
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    vk::DescriptorImageInfo prefilteredInfo{};
+    prefilteredInfo
+        .setSampler(*fallbackBlackCubeSampler)
+        .setImageView(*fallbackBlackCubeView)
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    vk::DescriptorImageInfo brdfInfo{};
+    brdfInfo
+        .setSampler(*fallbackBrdfLut->getSampler())
+        .setImageView(*fallbackBrdfLut->getImageView())
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    vk::DescriptorImageInfo environmentInfo{};
+    environmentInfo
+        .setSampler(*environmentCubeSampler)
+        .setImageView(*environmentCubeView)
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    std::array<vk::WriteDescriptorSet, 4> writes{};
+
+    writes[0]
+        .setDstSet(*iblDescriptorSet)
+        .setDstBinding(0)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1)
+        .setImageInfo(irradianceInfo);
+
+    writes[1]
+        .setDstSet(*iblDescriptorSet)
+        .setDstBinding(1)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1)
+        .setImageInfo(prefilteredInfo);
+
+    writes[2]
+        .setDstSet(*iblDescriptorSet)
+        .setDstBinding(2)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1)
+        .setImageInfo(brdfInfo);
+
+    writes[3]
+        .setDstSet(*iblDescriptorSet)
+        .setDstBinding(3)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1)
+        .setImageInfo(environmentInfo);
+
+    device.updateDescriptorSets(writes, {});
+}
+
+
+
+
+
+void Renderer::createSkyboxPipeline()
+{
+    auto& device = vkContext.getDevice();
+
+    vk::raii::ShaderModule vertShaderModule =
+        createShaderModule(readFile("shaders/skybox_vert.spv"));
+
+    vk::raii::ShaderModule fragShaderModule =
+        createShaderModule(readFile("shaders/skybox_frag.spv"));
+
+    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
+    vertShaderStageInfo
+        .setStage(vk::ShaderStageFlagBits::eVertex)
+        .setModule(*vertShaderModule)
+        .setPName("main");
+
+    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
+    fragShaderStageInfo
+        .setStage(vk::ShaderStageFlagBits::eFragment)
+        .setModule(*fragShaderModule)
+        .setPName("main");
+
+    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
+        vertShaderStageInfo,
+        fragShaderStageInfo
+    };
+
+    // Fullscreen triangle: no vertex buffers, no attributes.
+    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+
+    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly
+        .setTopology(vk::PrimitiveTopology::eTriangleList)
+        .setPrimitiveRestartEnable(VK_FALSE);
+
+    vk::PipelineViewportStateCreateInfo viewportState{};
+    viewportState
+        .setViewportCount(1)
+        .setScissorCount(1);
+
+    vk::PipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer
+        .setDepthClampEnable(VK_FALSE)
+        .setRasterizerDiscardEnable(VK_FALSE)
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eNone)
+        .setFrontFace(vk::FrontFace::eCounterClockwise)
+        .setDepthBiasEnable(VK_FALSE)
+        .setLineWidth(1.0f);
+
+    vk::PipelineMultisampleStateCreateInfo multisampling{};
+    multisampling
+        .setRasterizationSamples(vkContext.getMsaaSamples())
+        .setSampleShadingEnable(VK_FALSE);
+
+    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil
+        .setDepthTestEnable(VK_FALSE)
+        .setDepthWriteEnable(VK_FALSE)
+        
+        .setDepthBoundsTestEnable(VK_FALSE)
+        .setStencilTestEnable(VK_FALSE);
+
+    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment
+        .setBlendEnable(VK_FALSE)
+        .setColorWriteMask(
+            vk::ColorComponentFlagBits::eR |
+            vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB |
+            vk::ColorComponentFlagBits::eA
+        );
+
+    vk::PipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending
+        .setLogicOpEnable(VK_FALSE)
+        .setLogicOp(vk::LogicOp::eCopy)
+        .setAttachments(colorBlendAttachment);
+
+    std::vector<vk::DynamicState> dynamicStates = {
+        vk::DynamicState::eViewport,
+        vk::DynamicState::eScissor
+    };
+
+    vk::PipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.setDynamicStates(dynamicStates);
+
+    // Skybox pipeline layout:
+    // set 0 = frame UBO
+    // set 1 = IBL descriptor set
+    std::array<vk::DescriptorSetLayout, 2> setLayouts = {
+        *frameDescriptorSetLayout,
+        *iblDescriptorSetLayout
+    };
+
+    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.setSetLayouts(setLayouts);
+
+    skyboxPipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
+
+    vk::StructureChain<
+        vk::GraphicsPipelineCreateInfo,
+        vk::PipelineRenderingCreateInfo
+    > pipelineCreateInfoChain{};
+
+    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        .setStages(shaderStages)
+        .setPVertexInputState(&vertexInputInfo)
+        .setPInputAssemblyState(&inputAssembly)
+        .setPViewportState(&viewportState)
+        .setPRasterizationState(&rasterizer)
+        .setPMultisampleState(&multisampling)
+        .setPDepthStencilState(&depthStencil)
+        .setPColorBlendState(&colorBlending)
+        .setPDynamicState(&dynamicState)
+        .setLayout(*skyboxPipelineLayout)
+        .setRenderPass(vk::RenderPass{});
+
+    pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
+        .setColorAttachmentFormats(swapChainSurfaceFormat.format)
+        .setDepthAttachmentFormat(depthFormat);
+
+    skyboxPipeline = vk::raii::Pipeline(
+        device,
+        nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
+}
+
+void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex)
+{
+    (void)imageIndex;
+
+    if (skyboxPipeline == nullptr || skyboxPipelineLayout == nullptr)
+        return;
+
+    if (iblDescriptorSet == nullptr)
+        return;
+
+    if (environmentCubeView == nullptr || environmentCubeSampler == nullptr)
+        return;
+
+    commandBuffer.bindPipeline(
+        vk::PipelineBindPoint::eGraphics,
+        *skyboxPipeline
+    );
+
+    vk::Viewport viewport{};
+    viewport
+        .setX(0.0f)
+        .setY(0.0f)
+        .setWidth(static_cast<float>(swapChainExtent.width))
+        .setHeight(static_cast<float>(swapChainExtent.height))
+        .setMinDepth(0.0f)
+        .setMaxDepth(1.0f);
+
+    vk::Rect2D scissor{};
+    scissor
+        .setOffset(vk::Offset2D{ 0, 0 })
+        .setExtent(swapChainExtent);
+
+    commandBuffer.setViewport(0, viewport);
+    commandBuffer.setScissor(0, scissor);
+
+    std::array<vk::DescriptorSet, 2> sets = {
+        *frameDescriptorSets[frameIndex],
+        *iblDescriptorSet
+    };
+
+    commandBuffer.bindDescriptorSets(
+        vk::PipelineBindPoint::eGraphics,
+        *skyboxPipelineLayout,
+        0,
+        sets,
+        {}
+    );
+
+    commandBuffer.draw(3, 1, 0, 0);
+}
 
 void Renderer::initImGui()
 {
@@ -1704,6 +2614,7 @@ void Renderer::beginImGuiFrame()
     ImGui::NewFrame();
 }
 
+
 void Renderer::buildImGui()
 {
     if (uiState.showDebugPanel)
@@ -1722,6 +2633,8 @@ void Renderer::buildImGui()
             totalIndexCount += gpuMesh->getIndexCount();
         }
 
+
+
         EditorPanels::drawRendererPanel(
             vkContext,
             swapChainExtent,
@@ -1739,6 +2652,25 @@ void Renderer::buildImGui()
             animateModel,
             rotationSpeed);
 
+        EditorPanels::drawCameraPanel(
+            camera,
+            cameraRadius,
+            cameraYaw,
+            cameraPitch,
+            cameraFov,
+            cameraNear,
+            cameraFar,
+            mouseOrbitSensitivity,
+            mousePanSensitivity,
+            mouseZoomSensitivity,
+            minCameraRadius,
+            maxCameraRadius);
+
+        EditorPanels::drawLightingPanel(
+            lightDirection,
+            lightColor,
+            ambientColor);
+
         if (!gpuMeshes.empty() && !materials.empty())
         {
             EditorPanels::drawScenePanel(
@@ -1755,24 +2687,28 @@ void Renderer::buildImGui()
             ImGui::TextUnformatted("Scene editing unavailable: no GPU mesh or default material loaded.");
         }
 
-        EditorPanels::drawCameraPanel(
-            camera,
-            cameraRadius,
-            cameraYaw,
-            cameraPitch,
-            cameraFov,
-            cameraNear,
-            cameraFar,
-            mouseOrbitSensitivity,
-            mousePanSensitivity,
-            mouseZoomSensitivity,
-            minCameraRadius,
-            maxCameraRadius);
+
+   //     const Renderable* selectedRenderable =
+   //         scene.empty() ? nullptr : &scene.getRenderables()[uiState.selectedRenderableIndex];
+
+        Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
         Material* selectedMaterial = getSelectedRenderableMaterial();
+
+        const Texture2D* baseColorTexture =
+            selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
+
+        const Texture2D* normalTexture =
+            selectedMaterial ? selectedMaterial->getNormalTexture() : nullptr;
+
+        const Texture2D* metallicRoughnessTexture =
+            selectedMaterial ? selectedMaterial->getMetallicRoughnessTexture() : nullptr;
+     
+
+     //   Material* selectedMaterial = getSelectedRenderableMaterial();
         int selectedMaterialIndex = selectedMaterial ? getMaterialIndex(*selectedMaterial) : -1;
         const Texture2D* selectedTexture = selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
-        Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
+     
 
         EditorPanels::drawAssetInspectionPanel(
             scene,
@@ -1784,21 +2720,45 @@ void Renderer::buildImGui()
             selectedMaterial,
             selectedTexture);
 
-        EditorPanels::drawLightingPanel(
+        EditorPanels::drawVerificationPanel(
+            scene,
+            uiState,
+            currentModelPath,
+            selectedRenderable,
+            selectedMaterial,
+            baseColorTexture,
+            normalTexture,
+            metallicRoughnessTexture,
             lightDirection,
             lightColor,
             ambientColor);
-       
+
+
+        void drawVerificationPanel(
+            const Scene& scene,
+            const EditorUiState& uiState,
+            const std::string& currentModelPath,
+            const Renderable* selectedRenderable,
+            const Material* selectedMaterial,
+            const Texture2D* baseColorTexture,
+            const Texture2D* normalTexture,
+            const Texture2D* metallicRoughnessTexture,
+            const glm::vec3& lightDirection,
+            const glm::vec3& lightColor,
+            const glm::vec3& ambientColor);
 
         EditorPanels::drawSelectedMaterialPanel(
             selectedRenderable,
             selectedMaterial,
             selectedTexture,
             selectedMaterialIndex);
-
+        
+        
         EditorPanels::drawDebugPanel(
             uiState,
             isWireframeSupported());
+
+        
 
         ImGui::End();
     }
@@ -1808,6 +2768,7 @@ void Renderer::buildImGui()
         ImGui::ShowDemoWindow(&uiState.showDemoWindow);
     }
 }
+
 
 void Renderer::renderImGui(vk::CommandBuffer commandBuffer)
 {

@@ -21,7 +21,8 @@ inline constexpr uint32_t WIDTH = 800;
 inline constexpr uint32_t HEIGHT = 600;
 
 inline const std::string MODEL_PATH = "models/viking_room.obj";
-inline const std::string TEXTURE_PATH = "models/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest_OcclusionRoughnessMetallic.png";
+inline const std::string TEXTURE_PATH = "models/BoxTextured/glTF/CesiumLogoFlat.png";
+
 
 // C:\dev\LastVulkan\LastVulkan\models\NormalTangentMirrorTest\glTF
 
@@ -104,15 +105,20 @@ struct UniformBufferObject
     glm::mat4 view{ 1.0f };
     glm::mat4 proj{ 1.0f };
 
+    glm::mat4 invView;
+    glm::mat4 invProj;
+
     glm::vec4 lightDirection{ -0.5f, -1.0f, -0.3f, 0.0f };
     glm::vec4 lightColor{ 1.0f, 1.0f, 1.0f, 1.0f };
     glm::vec4 ambientColor{ 0.15f, 0.15f, 0.15f, 1.0f };
+    glm::vec4 cameraPosition{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 };
 
 struct PushConstantData
 {
     glm::mat4 model{ 1.0f };
+	glm::mat4 normalMatrix{ 1.0f };
     glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
 
     // Suggested packing:

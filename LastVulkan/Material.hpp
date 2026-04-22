@@ -65,6 +65,12 @@ public:
     float getRoughnessFactor() const { return roughnessFactor; }
     void setRoughnessFactor(float value) { roughnessFactor = value; }
 
+    const std::string& getAlphaMode() const { return alphaMode; }
+    void setAlphaMode(const std::string& value) { alphaMode = value; }
+
+    float getAlphaCutoff() const { return alphaCutoff; }
+    void setAlphaCutoff(float value) { alphaCutoff = value; }
+
 private:
     Texture2D& texture;
     Texture2D* normalTexture = nullptr;
@@ -77,4 +83,7 @@ private:
     float metallicFactor = 1.0f;
     float roughnessFactor = 1.0f;
     float normalScale = 1.0f;
+
+    std::string alphaMode = "OPAQUE";
+    float alphaCutoff = 0.5f;
 };

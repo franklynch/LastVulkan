@@ -128,6 +128,11 @@
     <ClInclude Include="VulkanContext.hpp" />
     <ClInclude Include="Renderer.hpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\shader.slang" />
+    <None Include="shaders\skybox_frag.slang" />
+    <None Include="shaders\skybox_vert.slang" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

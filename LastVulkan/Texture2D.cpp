@@ -5,7 +5,6 @@
 #include <cstring>
 #include <stdexcept>
 
-
 #include <stb_image.h>
 
 Texture2D::Texture2D(VulkanContext& vkContext,
@@ -31,19 +30,81 @@ Texture2D::Texture2D(
     uint32_t height,
     uint32_t channels,
     const std::string& debugName,
-    vk::Format format)
+    vk::Format format,
+    SamplerOptions samplerOptions)
     : vkContext(vkContext)
     , bufferUtils(bufferUtils)
     , imageUtils(imageUtils)
     , sourcePath(debugName)
     , imageFormat(format)
+    , samplerOptions(samplerOptions)
 {
-    loadFromMemory(pixelData, width, height, channels, format);
+    if (!pixelData)
+    {
+        throw std::runtime_error("Texture2D: pixelData is null");
+    }
+
+    if (width == 0 || height == 0)
+    {
+        throw std::runtime_error("Texture2D: invalid dimensions");
+    }
+
+    if (channels != 3 && channels != 4)
+    {
+        throw std::runtime_error("Texture2D: only RGB8 and RGBA8 convenience uploads are supported");
+    }
+
+    std::vector<unsigned char> expandedRgbaPixels;
+    const unsigned char* resolvedPixelData = pixelData;
+
+    if (channels == 3)
+    {
+        const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
+        expandedRgbaPixels.resize(pixelCount * 4);
+
+        for (size_t i = 0; i < pixelCount; ++i)
+        {
+            expandedRgbaPixels[i * 4 + 0] = pixelData[i * 3 + 0];
+            expandedRgbaPixels[i * 4 + 1] = pixelData[i * 3 + 1];
+            expandedRgbaPixels[i * 4 + 2] = pixelData[i * 3 + 2];
+            expandedRgbaPixels[i * 4 + 3] = 255;
+        }
+
+        resolvedPixelData = expandedRgbaPixels.data();
+    }
+
+    UploadDesc uploadDesc{};
+    uploadDesc.data = resolvedPixelData;
+    uploadDesc.width = width;
+    uploadDesc.height = height;
+    uploadDesc.format = format;
+    uploadDesc.dataSizeBytes =
+        static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    uploadDesc.generateMips = true;
+
+    loadFromMemory(uploadDesc);
     createImageView();
     createSampler();
 }
 
-
+Texture2D::Texture2D(
+    VulkanContext& vkContext,
+    BufferUtils& bufferUtils,
+    ImageUtils& imageUtils,
+    const UploadDesc& desc,
+    const std::string& debugName,
+    SamplerOptions samplerOptions)
+    : vkContext(vkContext)
+    , bufferUtils(bufferUtils)
+    , imageUtils(imageUtils)
+    , sourcePath(debugName)
+    , imageFormat(desc.format)
+    , samplerOptions(samplerOptions)
+{
+    loadFromMemory(desc);
+    createImageView();
+    createSampler();
+}
 
 void Texture2D::loadFromFile(const std::string& path)
 {
@@ -59,38 +120,84 @@ void Texture2D::loadFromFile(const std::string& path)
         throw std::runtime_error("failed to load texture image: " + path);
     }
 
-    vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(texWidth) *
-        static_cast<vk::DeviceSize>(texHeight) * 4;
+    UploadDesc desc{};
+    desc.data = pixels;
+    desc.width = static_cast<uint32_t>(texWidth);
+    desc.height = static_cast<uint32_t>(texHeight);
+    desc.format = imageFormat;
+    desc.dataSizeBytes = static_cast<size_t>(texWidth) * static_cast<size_t>(texHeight) * 4;
+    desc.generateMips = true;
 
-    mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
+    loadFromMemory(desc);
 
-    vk::raii::Buffer stagingBuffer({ });
-    vk::raii::DeviceMemory stagingBufferMemory({ });
+    stbi_image_free(pixels);
+}
+
+void Texture2D::loadFromMemory(const UploadDesc& desc)
+{
+    if (!desc.data)
+    {
+        throw std::runtime_error("Texture2D: uploadDesc.data is null");
+    }
+
+    if (desc.width == 0 || desc.height == 0)
+    {
+        throw std::runtime_error("Texture2D: invalid dimensions");
+    }
+
+    if (desc.dataSizeBytes == 0)
+    {
+        throw std::runtime_error("Texture2D: uploadDesc.dataSizeBytes must be non-zero");
+    }
+
+    imageFormat = desc.format;
+
+    if (desc.generateMips)
+    {
+        mipLevels = static_cast<uint32_t>(
+            std::floor(std::log2(std::max(desc.width, desc.height)))
+            ) + 1;
+    }
+    else
+    {
+        mipLevels = 1;
+    }
+
+    const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(desc.dataSizeBytes);
+
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingBufferMemory{ nullptr };
 
     bufferUtils.createBuffer(
         imageSize,
         vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
         stagingBuffer,
         stagingBufferMemory
     );
 
-    void* data = stagingBufferMemory.mapMemory(0, imageSize);
-    std::memcpy(data, pixels, static_cast<size_t>(imageSize));
+    void* mappedData = stagingBufferMemory.mapMemory(0, imageSize);
+    std::memcpy(mappedData, desc.data, desc.dataSizeBytes);
     stagingBufferMemory.unmapMemory();
 
-    stbi_image_free(pixels);
+    vk::ImageUsageFlags usage =
+        vk::ImageUsageFlagBits::eTransferDst |
+        vk::ImageUsageFlagBits::eSampled;
+
+    if (desc.generateMips)
+    {
+        usage |= vk::ImageUsageFlagBits::eTransferSrc;
+    }
 
     imageUtils.createImage(
-        static_cast<uint32_t>(texWidth),
-        static_cast<uint32_t>(texHeight),
+        desc.width,
+        desc.height,
         mipLevels,
         vk::SampleCountFlagBits::e1,
         imageFormat,
         vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransferSrc |
-        vk::ImageUsageFlagBits::eTransferDst |
-        vk::ImageUsageFlagBits::eSampled,
+        usage,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
         image,
         imageMemory
@@ -106,114 +213,38 @@ void Texture2D::loadFromFile(const std::string& path)
     imageUtils.copyBufferToImage(
         stagingBuffer,
         image,
-        static_cast<uint32_t>(texWidth),
-        static_cast<uint32_t>(texHeight)
+        desc.width,
+        desc.height
     );
 
-    generateMipmaps(image, imageFormat, texWidth, texHeight, mipLevels);
-}
-
-void Texture2D::loadFromMemory(
-    const unsigned char* pixelData,
-    uint32_t width,
-    uint32_t height,
-    uint32_t channels,
-    vk::Format format)
-{
-    if (!pixelData)
-        throw std::runtime_error("Texture2D: pixelData is null");
-
-    if (width == 0 || height == 0)
-        throw std::runtime_error("Texture2D: invalid dimensions");
-
-    if (channels != 3 && channels != 4)
-        throw std::runtime_error("Texture2D: only RGB8 and RGBA8 supported");
-
-    std::vector<unsigned char> rgbaPixels;
-    const unsigned char* uploadPixels = pixelData;
-
-    if (channels == 3)
+    if (desc.generateMips)
     {
-        rgbaPixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
-
-        for (size_t i = 0; i < static_cast<size_t>(width) * static_cast<size_t>(height); ++i)
-        {
-            rgbaPixels[i * 4 + 0] = pixelData[i * 3 + 0];
-            rgbaPixels[i * 4 + 1] = pixelData[i * 3 + 1];
-            rgbaPixels[i * 4 + 2] = pixelData[i * 3 + 2];
-            rgbaPixels[i * 4 + 3] = 255;
-        }
-
-        uploadPixels = rgbaPixels.data();
+        generateMipmaps(
+            image,
+            imageFormat,
+            static_cast<int32_t>(desc.width),
+            static_cast<int32_t>(desc.height),
+            mipLevels
+        );
     }
-
-    vk::DeviceSize imageSize =
-        static_cast<vk::DeviceSize>(width) *
-        static_cast<vk::DeviceSize>(height) * 4;
-
-    mipLevels = static_cast<uint32_t>(
-        std::floor(std::log2(std::max(width, height)))) + 1;
-
-    vk::raii::Buffer stagingBuffer({});
-    vk::raii::DeviceMemory stagingBufferMemory({});
-
-    bufferUtils.createBuffer(
-        imageSize,
-        vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingBufferMemory
-    );
-
-    void* data = stagingBufferMemory.mapMemory(0, imageSize);
-    std::memcpy(data, uploadPixels, static_cast<size_t>(imageSize));
-    stagingBufferMemory.unmapMemory();
-
-    imageUtils.createImage(
-        width,
-        height,
-        mipLevels,
-        vk::SampleCountFlagBits::e1,
-        format,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransferSrc |
-        vk::ImageUsageFlagBits::eTransferDst |
-        vk::ImageUsageFlagBits::eSampled,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        image,
-        imageMemory
-    );
-
-    imageUtils.transitionImageLayout(
-        image,
-        vk::ImageLayout::eUndefined,
-        vk::ImageLayout::eTransferDstOptimal,
-        mipLevels
-    );
-
-    imageUtils.copyBufferToImage(
-        stagingBuffer,
-        image,
-        width,
-        height
-    );
-
-    generateMipmaps(
-        image,
-        format,
-        static_cast<int32_t>(width),
-        static_cast<int32_t>(height),
-        mipLevels
-    );
+    else
+    {
+        imageUtils.transitionImageLayout(
+            image,
+            vk::ImageLayout::eTransferDstOptimal,
+            vk::ImageLayout::eShaderReadOnlyOptimal,
+            1
+        );
+    }
 }
 
 void Texture2D::createImageView()
 {
-        imageView = imageUtils.createImageView(
-            image,
-            imageFormat,
-            vk::ImageAspectFlagBits::eColor,
-            mipLevels);
+    imageView = imageUtils.createImageView(
+        image,
+        imageFormat,
+        vk::ImageAspectFlagBits::eColor,
+        mipLevels);
 }
 
 void Texture2D::createSampler()
@@ -223,21 +254,31 @@ void Texture2D::createSampler()
 
     vk::PhysicalDeviceProperties properties = physicalDevice.getProperties();
 
+    float resolvedMaxLod =
+        (samplerOptions.maxLod >= 0.0f)
+        ? samplerOptions.maxLod
+        : static_cast<float>(mipLevels);
+
+    float resolvedAnisotropy =
+        samplerOptions.enableAnisotropy
+        ? properties.limits.maxSamplerAnisotropy
+        : 1.0f;
+
     vk::SamplerCreateInfo samplerInfo{};
     samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-        .setAddressModeV(vk::SamplerAddressMode::eRepeat)
-        .setAddressModeW(vk::SamplerAddressMode::eRepeat)
+        .setMagFilter(samplerOptions.magFilter)
+        .setMinFilter(samplerOptions.minFilter)
+        .setMipmapMode(samplerOptions.mipmapMode)
+        .setAddressModeU(samplerOptions.addressModeU)
+        .setAddressModeV(samplerOptions.addressModeV)
+        .setAddressModeW(samplerOptions.addressModeW)
         .setMipLodBias(0.0f)
-        .setAnisotropyEnable(VK_TRUE)
-        .setMaxAnisotropy(properties.limits.maxSamplerAnisotropy)
+        .setAnisotropyEnable(samplerOptions.enableAnisotropy ? VK_TRUE : VK_FALSE)
+        .setMaxAnisotropy(resolvedAnisotropy)
         .setCompareEnable(VK_FALSE)
         .setCompareOp(vk::CompareOp::eAlways)
         .setMinLod(0.0f)
-        .setMaxLod(static_cast<float>(mipLevels))
+        .setMaxLod(resolvedMaxLod)
         .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
         .setUnnormalizedCoordinates(VK_FALSE);
 
@@ -288,7 +329,7 @@ void Texture2D::generateMipmaps(vk::raii::Image& image,
 
         barrier.subresourceRange.setBaseMipLevel(i - 1);
 
-        commandBuffer->pipelineBarrier(
+        commandBuffer.pipelineBarrier(
             vk::PipelineStageFlagBits::eTransfer,
             vk::PipelineStageFlagBits::eTransfer,
             {},
@@ -307,32 +348,27 @@ void Texture2D::generateMipmaps(vk::raii::Image& image,
             vk::Offset3D{
                 mipWidth > 1 ? mipWidth / 2 : 1,
                 mipHeight > 1 ? mipHeight / 2 : 1,
-                1
-            }
+                1}
         };
-
-        vk::ImageSubresourceLayers srcSubresource{};
-        srcSubresource
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setMipLevel(i - 1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1);
-
-        vk::ImageSubresourceLayers dstSubresource{};
-        dstSubresource
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setMipLevel(i)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1);
 
         vk::ImageBlit blit{};
         blit
-            .setSrcSubresource(srcSubresource)
             .setSrcOffsets(srcOffsets)
-            .setDstSubresource(dstSubresource)
-            .setDstOffsets(dstOffsets);
+            .setSrcSubresource(vk::ImageSubresourceLayers{
+                vk::ImageAspectFlagBits::eColor,
+                i - 1,
+                0,
+                1
+                })
+            .setDstOffsets(dstOffsets)
+            .setDstSubresource(vk::ImageSubresourceLayers{
+                vk::ImageAspectFlagBits::eColor,
+                i,
+                0,
+                1
+                });
 
-        commandBuffer->blitImage(
+        commandBuffer.blitImage(
             *image,
             vk::ImageLayout::eTransferSrcOptimal,
             *image,
@@ -347,7 +383,7 @@ void Texture2D::generateMipmaps(vk::raii::Image& image,
             .setSrcAccessMask(vk::AccessFlagBits::eTransferRead)
             .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
 
-        commandBuffer->pipelineBarrier(
+        commandBuffer.pipelineBarrier(
             vk::PipelineStageFlagBits::eTransfer,
             vk::PipelineStageFlagBits::eFragmentShader,
             {},
@@ -360,14 +396,15 @@ void Texture2D::generateMipmaps(vk::raii::Image& image,
         if (mipHeight > 1) mipHeight /= 2;
     }
 
-    barrier.subresourceRange.setBaseMipLevel(mipLevels - 1);
     barrier
         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
         .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
 
-    commandBuffer->pipelineBarrier(
+    barrier.subresourceRange.setBaseMipLevel(mipLevels - 1);
+
+    commandBuffer.pipelineBarrier(
         vk::PipelineStageFlagBits::eTransfer,
         vk::PipelineStageFlagBits::eFragmentShader,
         {},
@@ -376,6 +413,5 @@ void Texture2D::generateMipmaps(vk::raii::Image& image,
         barrier
     );
 
-    bufferUtils.endSingleTimeCommands(*commandBuffer);
+    bufferUtils.endSingleTimeCommands(commandBuffer);
 }
-

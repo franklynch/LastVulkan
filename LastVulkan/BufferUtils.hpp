@@ -1,7 +1,5 @@
 #pragma once
 
-#include <memory>
-
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
 #else
@@ -27,7 +25,7 @@ public:
         vk::raii::Buffer& dstBuffer,
         vk::DeviceSize size) const;
 
-    std::unique_ptr<vk::raii::CommandBuffer> beginSingleTimeCommands() const;
+    vk::raii::CommandBuffer beginSingleTimeCommands() const;
     void endSingleTimeCommands(vk::raii::CommandBuffer& commandBuffer) const;
 
 private:

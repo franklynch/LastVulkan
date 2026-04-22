@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <array>
 
 #include <vector>
 
@@ -29,6 +30,7 @@ import vulkan_hpp;
 #include "Camera.hpp"
 #include "Scene.hpp"
 #include "EditorUiState.hpp"
+
 
 class Renderer
 {
@@ -80,6 +82,9 @@ private:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
+    
+    
+    
     void focusSelectedRenderable();
     
     void resetDefaultSceneLayout();
@@ -129,17 +134,28 @@ private:
     Texture2D& getDefaultTexture();
     Material& getDefaultMaterial();
 
+      
+    
+  
+
     
     
 
 private:
-    Window& window;
-    VulkanContext& vkContext;
-    BufferUtils bufferUtils;
-    ImageUtils imageUtils;
+    Window&             window;
+    VulkanContext&      vkContext;
+    BufferUtils         bufferUtils;
+    ImageUtils          imageUtils;
 
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
+
+    vk::raii::Pipeline solidPipeline = nullptr;
+    vk::raii::Pipeline solidDoubleSidedPipeline = nullptr;
+    vk::raii::Pipeline wireframePipeline = nullptr;
+    vk::raii::Pipeline wireframeDoubleSidedPipeline = nullptr;
+
+    std::string currentModelPath;
 
     float rotationSpeed = 90.0f;
     
@@ -172,45 +188,46 @@ private:
     Material* getSelectedRenderableMaterial();
     int getMaterialIndex(const Material& material) const;
     bool isWireframeSupported() const;
+    glm::vec3 computeSceneCenter() const;
 
     EditorUiState uiState;
 
     Camera camera;
 
-    std::vector<std::unique_ptr<Texture2D>> normalTextures;
-    std::unique_ptr<Texture2D> defaultNormalTexture;
+    std::vector<std::unique_ptr<Texture2D>>     normalTextures;
+    std::unique_ptr<Texture2D>                  defaultNormalTexture;
 
-    std::vector<std::unique_ptr<Texture2D>> metallicRoughnessTextures;
-    std::unique_ptr<Texture2D> defaultMetallicRoughnessTexture;
+    std::vector<std::unique_ptr<Texture2D>>     metallicRoughnessTextures;
+    std::unique_ptr<Texture2D>                  defaultMetallicRoughnessTexture;
     
 
-    vk::raii::SwapchainKHR swapChain = nullptr;
-    std::vector<vk::Image> swapChainImages;
-    vk::SurfaceFormatKHR swapChainSurfaceFormat;
-    vk::Extent2D swapChainExtent;
-    std::vector<vk::raii::ImageView> swapChainImageViews;
+    vk::raii::SwapchainKHR              swapChain = nullptr;
+    std::vector<vk::Image>              swapChainImages;
+    vk::SurfaceFormatKHR                swapChainSurfaceFormat;
+    vk::Extent2D                        swapChainExtent;
+    std::vector<vk::raii::ImageView>    swapChainImageViews;
 
-    vk::raii::PipelineLayout pipelineLayout = nullptr;
-    vk::raii::Pipeline solidPipeline = nullptr;
-    vk::raii::Pipeline wireframePipeline = nullptr;
+    vk::raii::PipelineLayout            pipelineLayout = nullptr;
+   
 
-    vk::raii::Image colorImage = nullptr;
-    vk::raii::DeviceMemory colorImageMemory = nullptr;
-    vk::raii::ImageView colorImageView = nullptr;
+    vk::raii::Image             colorImage = nullptr;
+    vk::raii::DeviceMemory      colorImageMemory = nullptr;
+    vk::raii::ImageView         colorImageView = nullptr;
 
-    vk::Format depthFormat;
-    vk::ImageAspectFlags depthAspect;
+    vk::Format                  depthFormat;
+    vk::ImageAspectFlags        depthAspect;
 
-    vk::raii::Image depthImage = nullptr;
-    vk::raii::DeviceMemory depthImageMemory = nullptr;
-    vk::raii::ImageView depthImageView = nullptr;
+    vk::raii::Image             depthImage = nullptr;
+    vk::raii::DeviceMemory      depthImageMemory = nullptr;
+    vk::raii::ImageView         depthImageView = nullptr;
 
     std::vector<vk::raii::CommandBuffer> commandBuffers;
+        
+    std::vector<vk::raii::Semaphore>    presentCompleteSemaphores;
+    std::vector<vk::raii::Semaphore>    renderFinishedSemaphores;
+    std::vector<vk::raii::Fence>        inFlightFences;
+    std::vector<vk::Fence>              imagesInFlight;
 
-    std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
-    std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
-    std::vector<vk::raii::Fence> inFlightFences;
-    std::vector<vk::Fence> imagesInFlight;
     std::vector<bool> swapChainImageInitialized;
 
     uint32_t frameIndex = 0;
@@ -224,19 +241,70 @@ private:
 
     std::vector<std::unique_ptr<Texture2D>> textures;
     std::vector<std::unique_ptr<Material>> materials;
+
+    
    
     Scene scene;
 
-    vk::raii::DescriptorPool descriptorPool = nullptr;
-    vk::raii::DescriptorSetLayout frameDescriptorSetLayout = nullptr;
-    vk::raii::DescriptorSetLayout materialDescriptorSetLayout = nullptr;
+    vk::raii::DescriptorPool        descriptorPool = nullptr;
+    vk::raii::DescriptorSetLayout   frameDescriptorSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout   materialDescriptorSetLayout = nullptr;
+    
 
     std::vector<vk::raii::DescriptorSet> frameDescriptorSets;
     std::vector<vk::raii::DescriptorSet> materialDescriptorSets;
     
+    
     std::vector<vk::raii::Buffer> uniformBuffers;
     std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
+
+
+    void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
+    void createSkyboxPipeline();
+    void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
+    
+
+    vk::raii::Image environmentCubeImage{ nullptr };
+    
+    vk::raii::DeviceMemory environmentCubeMemory{ nullptr };
+    vk::raii::ImageView environmentCubeView{ nullptr };
+    vk::raii::Sampler environmentCubeSampler{ nullptr };
+
+    vk::raii::PipelineLayout skyboxPipelineLayout{ nullptr };
+    vk::raii::Pipeline skyboxPipeline{ nullptr };
+
+    
+    
+
+    
+    
+
+    
+    
+    // IBL descriptor set
+    vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
+    vk::raii::DescriptorSet iblDescriptorSet{ nullptr };
+
+    // Fallback BRDF LUT (2D)
+    std::unique_ptr<Texture2D> fallbackBrdfLut;
+
+    // Fallback cubemap (shared for irradiance/prefiltered/environment)
+    vk::raii::Image fallbackBlackCubeImage{ nullptr };
+    vk::raii::DeviceMemory fallbackBlackCubeMemory{ nullptr };
+    vk::raii::ImageView fallbackBlackCubeView{ nullptr };
+    vk::raii::Sampler fallbackBlackCubeSampler{ nullptr };
+
+    // --- IBL fallback setup ---
+    void createFallbackIBLResources();
+    void createFallbackBrdfLut();
+    void createFallbackBlackCube();
+    void updateIBLDescriptorSet();
+    
+
+   
+    
+
     
     
 };

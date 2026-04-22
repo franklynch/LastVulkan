@@ -52,7 +52,7 @@ void BufferUtils::createBuffer(vk::DeviceSize size,
     buffer.bindMemory(bufferMemory, 0);
 }
 
-std::unique_ptr<vk::raii::CommandBuffer> BufferUtils::beginSingleTimeCommands() const
+vk::raii::CommandBuffer BufferUtils::beginSingleTimeCommands() const
 {
     auto& device = vkContext.getDevice();
 
@@ -62,15 +62,13 @@ std::unique_ptr<vk::raii::CommandBuffer> BufferUtils::beginSingleTimeCommands() 
         .setLevel(vk::CommandBufferLevel::ePrimary)
         .setCommandBufferCount(1);
 
-    auto commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
-
-    std::unique_ptr<vk::raii::CommandBuffer> commandBuffer =
-        std::make_unique<vk::raii::CommandBuffer>(std::move(commandBuffers.front()));
+    vk::raii::CommandBuffers commandBuffers(device, allocInfo);
+    vk::raii::CommandBuffer commandBuffer = std::move(commandBuffers.front());
 
     vk::CommandBufferBeginInfo beginInfo{};
     beginInfo.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
-    commandBuffer->begin(beginInfo);
+    commandBuffer.begin(beginInfo);
     return commandBuffer;
 }
 
@@ -99,7 +97,7 @@ void BufferUtils::copyBuffer(vk::raii::Buffer& srcBuffer,
         .setDstOffset(0)
         .setSize(size);
 
-    commandBuffer->copyBuffer(*srcBuffer, *dstBuffer, copyRegion);
+    commandBuffer.copyBuffer(*srcBuffer, *dstBuffer, copyRegion);
 
-    endSingleTimeCommands(*commandBuffer);
+    endSingleTimeCommands(commandBuffer);
 }

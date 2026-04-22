@@ -5,6 +5,8 @@
 
 #include "imgui.h"
 
+#include <cfloat>
+
 namespace EditorPanels
 {
     void EditorPanels::drawRendererPanel(
@@ -241,6 +243,11 @@ namespace EditorPanels
         ImGui::Text("Has metallic-roughness map: %s",
             selectedMaterial->hasMetallicRoughnessTexture() ? "true" : "false");
 
+        ImGui::Text("Alpha mode: %s", selectedMaterial->getAlphaMode().c_str());
+        ImGui::Text("Alpha cutoff: %.3f", selectedMaterial->getAlphaCutoff());
+
+      
+
         float normalScale = selectedMaterial->getNormalScale();
         if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 2.0f))
         {
@@ -253,6 +260,7 @@ namespace EditorPanels
                 selectedMaterial->getNormalTexture()->getSourcePath().c_str());
         }
 
+        //THis the working example 
         glm::vec4 color = selectedMaterial->getBaseColorFactor();
         if (ImGui::ColorEdit4("Base Color Factor", &color.x))
         {
@@ -295,10 +303,15 @@ namespace EditorPanels
         ImGui::DragFloat("FOV", &cameraFov, 0.1f, 10.0f, 120.0f);
         ImGui::DragFloat("Near", &cameraNear, 0.01f, 0.01f, 10.0f);
         ImGui::DragFloat("Far", &cameraFar, 0.1f, 1.0f, 500.0f);
+        
+        ImGui::Separator();
 
-        ImGui::DragFloat("Orbit sensitivity", &mouseOrbitSensitivity, 0.001f, 0.001f, 0.1f);
-        ImGui::DragFloat("Pan sensitivity", &mousePanSensitivity, 0.0005f, 0.0001f, 0.1f);
-        ImGui::DragFloat("Zoom sensitivity", &mouseZoomSensitivity, 0.01f, 0.01f, 10.0f);
+        if (ImGui::CollapsingHeader("Sensitivity", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::DragFloat("Orbit sensitivity", &mouseOrbitSensitivity, 0.001f, 0.001f, 0.1f);
+            ImGui::DragFloat("Pan sensitivity", &mousePanSensitivity, 0.0005f, 0.0001f, 0.1f);
+            ImGui::DragFloat("Zoom sensitivity", &mouseZoomSensitivity, 0.01f, 0.01f, 10.0f);
+        }
 
         if (ImGui::Button("Reset camera"))
         {
@@ -315,7 +328,7 @@ namespace EditorPanels
     }
 
     void EditorPanels::drawLightingPanel(
-        glm::vec3& lightDirection,
+        glm::vec3& lightDirection,  
         glm::vec3& lightColor,
         glm::vec3& ambientColor)
     {
@@ -334,6 +347,116 @@ namespace EditorPanels
             lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
             ambientColor = glm::vec3(0.15f, 0.15f, 0.15f);
         }
+    }
+
+    void drawVerificationPanel(
+        const Scene& scene,
+        const EditorUiState& uiState,
+        const std::string& currentModelPath,
+        const Renderable* selectedRenderable,
+        const Material* selectedMaterial,
+        const Texture2D* baseColorTexture,
+        const Texture2D* normalTexture,
+        const Texture2D* metallicRoughnessTexture,
+        const glm::vec3& lightDirection,
+        const glm::vec3& lightColor,
+        const glm::vec3& ambientColor)
+    {
+        if (!ImGui::CollapsingHeader("Verification", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        ImGui::Separator();
+        ImGui::Text("Model");
+        ImGui::TextWrapped("%s", currentModelPath.c_str());
+
+        ImGui::Separator();
+        ImGui::Text("Scene");
+        ImGui::Text("Renderables: %u", static_cast<uint32_t>(scene.size()));
+
+        ImGui::Separator();
+        ImGui::Text("Selection");
+
+
+
+        ImGui::Text("Model: %s", currentModelPath.c_str());
+
+
+        if (selectedRenderable)
+        {
+            ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
+
+            const Transform& transform = selectedRenderable->getTransform();
+
+            ImGui::Text("Position: %.2f %.2f %.2f",
+                transform.position.x,
+                transform.position.y,
+                transform.position.z);
+
+            ImGui::Text("Rotation: %.2f %.2f %.2f",
+                transform.rotation.x,
+                transform.rotation.y,
+                transform.rotation.z);
+
+            ImGui::Text("Scale: %.2f %.2f %.2f",
+                transform.scale.x,
+                transform.scale.y,
+                transform.scale.z);
+        }
+        else
+        {
+            ImGui::Text("Renderable: <none>");
+        }
+
+        if (selectedMaterial)
+        {
+            ImGui::Text("Material: %s", selectedMaterial->getName().c_str());
+        }
+        else
+        {
+            ImGui::Text("Material: <none>");
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Textures");
+
+        ImGui::Text("Base Color: %s",
+            baseColorTexture ? baseColorTexture->getSourcePath().c_str() : "<none>");
+
+        ImGui::Text("Normal: %s",
+            normalTexture ? normalTexture->getSourcePath().c_str() : "<none>");
+
+        ImGui::Text("Metal/Rough: %s",
+            metallicRoughnessTexture ? metallicRoughnessTexture->getSourcePath().c_str() : "<none>");
+
+        ImGui::Separator();
+        ImGui::Text("Material Params");
+
+        if (selectedMaterial)
+        {
+            auto baseColor = selectedMaterial->getBaseColorFactor();
+
+            ImGui::Text("BaseColorFactor: %.2f %.2f %.2f %.2f",
+                baseColor.r, baseColor.g, baseColor.b, baseColor.a);
+
+            ImGui::Text("Metallic: %.2f", selectedMaterial->getMetallicFactor());
+            ImGui::Text("Roughness: %.2f", selectedMaterial->getRoughnessFactor());
+            ImGui::Text("Normal Scale: %.2f", selectedMaterial->getNormalScale());
+            ImGui::Text("Double Sided: %s", selectedMaterial->isDoubleSided() ? "Yes" : "No");
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Lighting");
+
+        ImGui::Text("Light Dir: %.2f %.2f %.2f",
+            lightDirection.x, lightDirection.y, lightDirection.z);
+
+        ImGui::Text("Light Color: %.2f %.2f %.2f",
+            lightColor.r, lightColor.g, lightColor.b);
+
+        ImGui::Text("Ambient: %.2f %.2f %.2f",
+            ambientColor.r, ambientColor.g, ambientColor.b);
+
+        
     }
 
     

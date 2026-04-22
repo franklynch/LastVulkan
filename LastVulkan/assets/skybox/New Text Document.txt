@@ -1,0 +1,29 @@
+Map them like this:
+Your code	File
++X (px)	right.jpg
+-X (nx)	left.jpg
++Y (py)	top.jpg
+-Y (ny)	bottom.jpg
++Z (pz)	front.jpg
+-Z (nz)	back.jpg
+
+
+assets/skybox/
+    px.png
+    nx.png
+    py.png
+    ny.png
+    pz.png
+    nz.png
+
+Meaning:
+
+px = +X
+nx = -X
+py = +Y
+ny = -Y
+pz = +Z
+nz = -Z
+
+drawLightingPanel
+drawAssetInspectionPanel

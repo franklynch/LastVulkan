@@ -159,4 +159,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\skybox_vert.slang" />
+    <None Include="shaders\skybox_frag.slang" />
+    <None Include="shaders\shader.slang" />
+  </ItemGroup>
 </Project>
