@@ -367,7 +367,8 @@ private:
 
     
 
-
+    vk::raii::Pipeline transparentPipeline = nullptr;
+    vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;
   
 
     

@@ -402,6 +402,9 @@ void Renderer::cleanupSwapChain()
     wireframeDoubleSidedPipeline = nullptr;
     pipelineLayout = nullptr;
 
+    transparentPipeline = nullptr;
+    transparentDoubleSidedPipeline = nullptr;
+
     skyboxPipeline = nullptr;
     skyboxPipelineLayout = nullptr;
 
@@ -694,6 +697,16 @@ void Renderer::createGraphicsPipeline()
         .setDepthBoundsTestEnable(VK_FALSE)
         .setStencilTestEnable(VK_FALSE);
 
+    vk::PipelineDepthStencilStateCreateInfo transparentDepthStencil{};
+    transparentDepthStencil
+        .setDepthTestEnable(VK_TRUE)
+        .setDepthWriteEnable(VK_FALSE)
+        .setDepthCompareOp(vk::CompareOp::eLess)
+        .setDepthBoundsTestEnable(VK_FALSE)
+        .setStencilTestEnable(VK_FALSE);
+
+
+
     vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment
         .setBlendEnable(VK_FALSE)
@@ -709,6 +722,28 @@ void Renderer::createGraphicsPipeline()
         .setLogicOpEnable(VK_FALSE)
         .setLogicOp(vk::LogicOp::eCopy)
         .setAttachments(colorBlendAttachment);
+
+    vk::PipelineColorBlendAttachmentState transparentBlendAttachment{};
+    transparentBlendAttachment
+        .setBlendEnable(VK_TRUE)
+        .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+        .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+        .setColorBlendOp(vk::BlendOp::eAdd)
+        .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+        .setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+        .setAlphaBlendOp(vk::BlendOp::eAdd)
+        .setColorWriteMask(
+            vk::ColorComponentFlagBits::eR |
+            vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB |
+            vk::ColorComponentFlagBits::eA
+        );
+
+    vk::PipelineColorBlendStateCreateInfo transparentColorBlending{};
+    transparentColorBlending
+        .setLogicOpEnable(VK_FALSE)
+        .setLogicOp(vk::LogicOp::eCopy)
+        .setAttachments(transparentBlendAttachment);
 
     std::vector<vk::DynamicState> dynamicStates = {
         vk::DynamicState::eViewport,
@@ -765,10 +800,18 @@ void Renderer::createGraphicsPipeline()
         .setColorAttachmentFormats(swapChainSurfaceFormat.format)
         .setDepthAttachmentFormat(depthFormat);
 
+    // -------------------------
+    // Opaque pipelines
+    // -------------------------
+
     // Filled, culled
     rasterizer
         .setPolygonMode(vk::PolygonMode::eFill)
         .setCullMode(vk::CullModeFlagBits::eBack);
+
+    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        .setPDepthStencilState(&depthStencil)
+        .setPColorBlendState(&colorBlending);
 
     solidPipeline = vk::raii::Pipeline(
         device,
@@ -787,12 +830,49 @@ void Renderer::createGraphicsPipeline()
         pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
     );
 
-    // Wireframe variants
+    // -------------------------
+    // Transparent pipelines
+    // -------------------------
+
+    // Transparent, culled
+    rasterizer
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eBack);
+
+    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        .setPDepthStencilState(&transparentDepthStencil)
+        .setPColorBlendState(&transparentColorBlending);
+
+    transparentPipeline = vk::raii::Pipeline(
+        device,
+        nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
+
+    // Transparent, double-sided
+    rasterizer
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eNone);
+
+    transparentDoubleSidedPipeline = vk::raii::Pipeline(
+        device,
+        nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
+
+    // -------------------------
+    // Wireframe opaque pipelines
+    // -------------------------
+
     wireframePipeline = nullptr;
     wireframeDoubleSidedPipeline = nullptr;
 
     if (vkContext.isFillModeNonSolidEnabled())
     {
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+            .setPDepthStencilState(&depthStencil)
+            .setPColorBlendState(&colorBlending);
+
         // Wireframe, culled
         rasterizer
             .setPolygonMode(vk::PolygonMode::eLine)
@@ -1333,7 +1413,7 @@ void Renderer::drawFrame()
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void Renderer::recordCommandBuffer(uint32_t imageIndex)
+void Renderer::recordCommandBuffer(uint32_t imageIndex) 
 {
     auto& commandBuffer = commandBuffers[frameIndex];
     commandBuffer.begin(vk::CommandBufferBeginInfo{});
@@ -1414,19 +1494,18 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     // Draw skybox first
     drawSkybox(commandBuffer, imageIndex);
 
+    // -------------------------
+    // Pass 1: OPAQUE + MASK
+    // -------------------------
     for (auto& renderable : scene.getRenderables())
     {
-        commandBuffer.bindVertexBuffers(
-            0,
-            *renderable.getMesh().getVertexBuffer(),
-            { 0 });
-
-        commandBuffer.bindIndexBuffer(
-            *renderable.getMesh().getIndexBuffer(),
-            0,
-            vk::IndexType::eUint32);
-
         Material& renderableMaterial = renderable.getMaterial();
+
+        const bool isBlendMaterial = (renderableMaterial.getAlphaMode() == "BLEND");
+        if (isBlendMaterial)
+        {
+            continue;
+        }
 
         auto materialIt = std::find_if(
             materials.begin(),
@@ -1442,6 +1521,16 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         }
 
         size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+
+        commandBuffer.bindVertexBuffers(
+            0,
+            *renderable.getMesh().getVertexBuffer(),
+            { 0 });
+
+        commandBuffer.bindIndexBuffer(
+            *renderable.getMesh().getIndexBuffer(),
+            0,
+            vk::IndexType::eUint32);
 
         vk::Pipeline activePipeline = *solidPipeline;
 
@@ -1486,10 +1575,6 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             vk::PipelineBindPoint::eGraphics,
             activePipeline);
 
-        // Main scene pipeline layout:
-        // set 0 = frame UBO
-        // set 1 = material textures
-        // set 2 = IBL textures
         std::array<vk::DescriptorSet, 3> sets = {
             *frameDescriptorSets[frameIndex],
             *materialDescriptorSets[materialIndex],
@@ -1511,10 +1596,19 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
         pushData.normalMatrix = normalMatrix;
         pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
+
+        const bool isMaskMaterial = (renderableMaterial.getAlphaMode() == "MASK");
+
         pushData.materialParams = glm::vec4(
             renderableMaterial.getMetallicFactor(),
             renderableMaterial.getRoughnessFactor(),
             renderableMaterial.getNormalScale(),
+            renderableMaterial.getAlphaCutoff());
+
+        pushData.alphaModeParams = glm::vec4(
+            isMaskMaterial ? 1.0f : 0.0f,
+            0.0f, // isBlend = false in opaque/mask pass
+            0.0f,
             0.0f);
 
         if (animateModel)
@@ -1534,6 +1628,135 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
         commandBuffer.drawIndexed(
             renderable.getMesh().getIndexCount(),
+            1,
+            0,
+            0,
+            0);
+    }
+
+    // -------------------------
+    // Pass 2: BLEND
+    // -------------------------
+    std::vector<Renderable*> transparentRenderables;
+    transparentRenderables.reserve(scene.getRenderables().size());
+
+    for (auto& renderable : scene.getRenderables())
+    {
+        if (renderable.getMaterial().getAlphaMode() == "BLEND")
+        {
+            transparentRenderables.push_back(&renderable);
+        }
+    }
+
+    // Back-to-front sort for transparent objects
+    const glm::vec3 cameraPos = camera.getPosition();
+
+    std::sort(
+        transparentRenderables.begin(),
+        transparentRenderables.end(),
+        [&](const Renderable* a, const Renderable* b)
+        {
+            glm::vec3 aPos = glm::vec3(a->getTransform().toMatrix()[3]);
+            glm::vec3 bPos = glm::vec3(b->getTransform().toMatrix()[3]);
+
+            float da = glm::dot(aPos - cameraPos, aPos - cameraPos);
+            float db = glm::dot(bPos - cameraPos, bPos - cameraPos);
+
+            return da > db; // back-to-front
+        });
+
+    for (Renderable* renderable : transparentRenderables)
+    {
+        Material& renderableMaterial = renderable->getMaterial();
+
+        auto materialIt = std::find_if(
+            materials.begin(),
+            materials.end(),
+            [&](const std::unique_ptr<Material>& candidate)
+            {
+                return candidate.get() == &renderableMaterial;
+            });
+
+        if (materialIt == materials.end())
+        {
+            throw std::runtime_error("renderable material not found in renderer materials");
+        }
+
+        size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+
+        commandBuffer.bindVertexBuffers(
+            0,
+            *renderable->getMesh().getVertexBuffer(),
+            { 0 });
+
+        commandBuffer.bindIndexBuffer(
+            *renderable->getMesh().getIndexBuffer(),
+            0,
+            vk::IndexType::eUint32);
+
+        vk::Pipeline activePipeline =
+            renderableMaterial.isDoubleSided()
+            ? *transparentDoubleSidedPipeline
+            : *transparentPipeline;
+
+        commandBuffer.bindPipeline(
+            vk::PipelineBindPoint::eGraphics,
+            activePipeline);
+
+        std::array<vk::DescriptorSet, 3> sets = {
+            *frameDescriptorSets[frameIndex],
+            *materialDescriptorSets[materialIndex],
+            *iblDescriptorSet
+        };
+
+        commandBuffer.bindDescriptorSets(
+            vk::PipelineBindPoint::eGraphics,
+            *pipelineLayout,
+            0,
+            sets,
+            {});
+
+        PushConstantData pushData{};
+        pushData.model = renderable->getTransform().toMatrix();
+
+        glm::mat3 normalMatrix =
+            glm::transpose(glm::inverse(glm::mat3(pushData.model)));
+
+        pushData.normalMatrix = normalMatrix;
+        pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
+
+        pushData.materialParams = glm::vec4(
+            renderableMaterial.getMetallicFactor(),
+            renderableMaterial.getRoughnessFactor(),
+            renderableMaterial.getNormalScale(),
+            renderableMaterial.getAlphaCutoff());
+
+        const bool isMaskMaterial = (renderableMaterial.getAlphaMode() == "MASK");
+        const bool isBlendMaterial = (renderableMaterial.getAlphaMode() == "BLEND");
+
+        pushData.alphaModeParams = glm::vec4(
+            isMaskMaterial ? 1.0f : 0.0f,
+            isBlendMaterial ? 1.0f : 0.0f,
+            0.0f,
+            0.0f);
+
+        if (animateModel)
+        {
+            pushData.model = glm::rotate(
+                pushData.model,
+                currentAnimationAngle,
+                glm::vec3(0.0f, 0.0f, 1.0f));
+        }
+
+        cmd.pushConstants(
+            *pipelineLayout,
+            vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+            0,
+            sizeof(PushConstantData),
+            &pushData);
+
+        commandBuffer.drawIndexed(
+            renderable->getMesh().getIndexCount(),
             1,
             0,
             0,
