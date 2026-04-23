@@ -18,6 +18,7 @@ struct UniformBuffer
 
     float4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
     float4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
+    float4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
 };
 
 [[vk::binding(0, 0)]]

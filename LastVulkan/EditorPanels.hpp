@@ -94,7 +94,11 @@ namespace EditorPanels
         float& iblIntensity,
         float& diffuseIBLIntensity,
         float& specularIBLIntensity,
-        float& environmentRotationDegrees);
+        float& environmentRotationDegrees,
+        bool& rotateSkybox,
+        bool& rotateIBLLighting,
+        const std::function<void()>& onResetEnvironment
+    );
 
     void drawPostProcessPanel(
         bool& toneMappingEnabled,

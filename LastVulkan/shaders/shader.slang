@@ -21,6 +21,7 @@ struct UniformBuffer
     float4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
     float4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
     float4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unused
+    float4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
 };
 
 [[vk::binding(0, 0)]]
@@ -262,7 +263,17 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         float environmentRotation = ubo.postProcessParams.w;
 
         float3 Nenv = float3(N.x, N.z, N.y);
-        Nenv = RotateEnvironmentY(normalize(Nenv), environmentRotation);
+        
+        Nenv = normalize(Nenv);
+        
+        bool rotateIBLLighting = (ubo.environmentControlParams.y > 0.5);
+
+        if (rotateIBLLighting)
+            {
+                Nenv = RotateEnvironmentY(Nenv, environmentRotation);
+            }
+
+                  
 
         float3 irradiance = irradianceTexture.Sample(Nenv).rgb;
 
@@ -271,9 +282,15 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 
        
 
-       float3 R = reflect(-V, N);
+        float3 R = reflect(-V, N);
+
         R = float3(R.x, R.z, R.y);
-        R = RotateEnvironmentY(normalize(R), environmentRotation);
+        
+        R = normalize(R);
+        if (rotateIBLLighting)
+        {
+            R = RotateEnvironmentY(R, environmentRotation);
+        }
 
         float maxPrefilterMip = 6.0;
         float prefilterLod = roughness * maxPrefilterMip;

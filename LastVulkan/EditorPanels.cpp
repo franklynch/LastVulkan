@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <string>
+#include <functional>
 
 #include "imgui.h"
 
@@ -358,7 +359,12 @@ namespace EditorPanels
         float& iblIntensity,
         float& diffuseIBLIntensity,
         float& specularIBLIntensity,
-        float& environmentRotationDegrees)
+        float& environmentRotationDegrees,
+        bool& rotateSkybox,
+        bool& rotateIBLLighting,
+        const std::function<void()>& onResetEnvironment
+    )
+
     {
         if (ImGui::CollapsingHeader("Environment / IBL", ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -375,7 +381,18 @@ namespace EditorPanels
             ImGui::SliderFloat("Diffuse IBL", &diffuseIBLIntensity, 0.0f, 4.0f, "%.2f");
             ImGui::SliderFloat("Specular IBL", &specularIBLIntensity, 0.0f, 4.0f, "%.2f");
 
+            ImGui::Separator();
+
             ImGui::SliderFloat("Environment Rotation", &environmentRotationDegrees, -180.0f, 180.0f, "%.1f deg");
+            ImGui::Checkbox("Rotate Skybox", &rotateSkybox);
+            ImGui::Checkbox("Rotate IBL Lighting", &rotateIBLLighting);
+
+            if (ImGui::Button("Reset Environment"))
+            {
+                onResetEnvironment();
+            }
+
+            
         }
     }
 

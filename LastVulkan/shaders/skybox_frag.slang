@@ -19,6 +19,7 @@ struct UniformBuffer
     float4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
     float4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
     float4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unused
+    float4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
 };
 
 [[vk::binding(0, 0)]]
@@ -71,7 +72,12 @@ float4 main(SkyboxVSOutput input) : SV_Target
     dir = float3(dir.x, dir.z, dir.y);
 
     float environmentRotation = ubo.postProcessParams.w;
-    dir = RotateEnvironmentY(dir, environmentRotation);
+    bool rotateSkybox = (ubo.environmentControlParams.x > 0.5);
+
+    if (rotateSkybox)
+    {
+        dir = RotateEnvironmentY(dir, environmentRotation);
+    }
 
     float3 color = environmentTexture.SampleLevel(dir, lod).rgb;
     

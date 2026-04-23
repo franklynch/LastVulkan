@@ -349,6 +349,8 @@ void Renderer::init()
 
     uiState.selectedRenderableIndex = scene.empty() ? -1 : 0;
 
+    resetEnvironmentSettings();
+
     createUniformBuffers();
     createDescriptorPool();
     createDescriptorSets();
@@ -1132,6 +1134,13 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         toneMappingEnabled ? 1.0f : 0.0f,
         gammaEnabled ? 1.0f : 0.0f,
         glm::radians(environmentRotationDegrees)
+    );
+
+    ubo.environmentControlParams = glm::vec4(
+        rotateSkybox ? 1.0f : 0.0f,
+        rotateIBLLighting ? 1.0f : 0.0f,
+        0.0f,
+        0.0f
     );
 
     
@@ -2607,7 +2616,27 @@ void Renderer::updateIBLDescriptorSet()
     device.updateDescriptorSets(writes, {});
 }
 
+void Renderer::resetEnvironmentSettings()
+{
+    showSkybox = true;
+    enableIBL = true;
+    debugReflectionOnly = false;
 
+    skyboxExposure = 1.0f;
+    skyboxLod = 0.0f;
+
+    iblIntensity = 1.0f;
+    diffuseIBLIntensity = 1.0f;
+    specularIBLIntensity = 1.0f;
+
+    toneMappingEnabled = true;
+    gammaEnabled = true;
+    postExposure = 1.0f;
+
+    environmentRotationDegrees = 0.0f;
+    rotateSkybox = true;
+    rotateIBLLighting = true;
+}
 
 
 void Renderer::createSkyboxPipeline()
@@ -2946,7 +2975,10 @@ void Renderer::buildImGui()
             iblIntensity,
             diffuseIBLIntensity,
             specularIBLIntensity,
-            environmentRotationDegrees  );
+            environmentRotationDegrees,
+            rotateSkybox,
+            rotateIBLLighting,
+            [this]() { resetEnvironmentSettings(); });
 
         EditorPanels::drawPostProcessPanel(
             toneMappingEnabled,

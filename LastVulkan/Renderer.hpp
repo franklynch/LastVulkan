@@ -265,6 +265,7 @@ private:
     void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
     void createSkyboxPipeline();
     void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
+	void resetEnvironmentSettings();
     
 
     vk::raii::Image environmentCubeImage{ nullptr };
@@ -303,6 +304,20 @@ private:
     void createFallbackBlackCube();
     void updateIBLDescriptorSet();
     
+    void drawEnvironmentPanel(
+        bool& showSkybox,
+        bool& enableIBL,
+        bool& debugReflectionOnly,
+        float& skyboxExposure,
+        float& skyboxLod,
+        float& iblIntensity,
+        float& diffuseIBLIntensity,
+        float& specularIBLIntensity,
+        float& environmentRotationDegrees,
+        bool& rotateSkybox,
+        bool& rotateIBLLighting,
+        const std::function<void()>& onResetEnvironment);
+    
 
    
     // --- Environment / IBL controls ---
@@ -316,6 +331,9 @@ private:
     float iblIntensity = 1.0f;
 
     float environmentRotationDegrees = 0.0f;
+
+    bool rotateSkybox = true;
+    bool rotateIBLLighting = true;
 
     float diffuseIBLIntensity = 1.0f;
     float specularIBLIntensity = 1.0f;
@@ -346,6 +364,11 @@ private:
     bool toneMappingEnabled = true;
     bool gammaEnabled = true;
     float postExposure = 1.0f;
+
+    
+
+
+  
 
     
     

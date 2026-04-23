@@ -115,7 +115,8 @@ struct UniformBufferObject
 
     glm::vec4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
     glm::vec4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
-    glm::vec4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unused
+    glm::vec4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unusedglm::vec4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
+    glm::vec4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused  
 
 };
 
