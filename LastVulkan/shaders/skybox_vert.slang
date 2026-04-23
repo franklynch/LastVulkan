@@ -10,10 +10,14 @@ struct UniformBuffer
     float4x4 proj;
     float4x4 invView;
     float4x4 invProj;
+
     float4 lightDirection;
     float4 lightColor;
     float4 ambientColor;
     float4 cameraPosition;
+
+    float4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
+    float4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
 };
 
 [[vk::binding(0, 0)]]
@@ -31,14 +35,13 @@ SkyboxVSOutput main(uint vertexID : SV_VertexID)
     };
 
     float2 ndc = positions[vertexID];
+
     output.pos = float4(ndc, 1.0, 1.0);
 
-    // Reconstruct a view-space ray from clip space
     float4 clip = float4(ndc, 1.0, 1.0);
     float4 view = mul(ubo.invProj, clip);
     float3 dirVS = normalize(view.xyz / view.w);
 
-    // Rotate into world space, ignore translation
     float3 dirWS = mul((float3x3)ubo.invView, dirVS);
 
     output.viewDir = dirWS;

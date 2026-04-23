@@ -83,6 +83,8 @@ private:
     void buildOverlay();
 
     
+
+  
     
     
     void focusSelectedRenderable();
@@ -303,7 +305,47 @@ private:
     
 
    
-    
+    // --- Environment / IBL controls ---
+    bool showSkybox = true;
+    bool enableIBL = false;
+    bool debugReflectionOnly = false;
+
+    float skyboxExposure = 1.0f;
+    float skyboxLod = 0.0f;
+
+    float iblIntensity = 1.0f;
+
+    float environmentRotationDegrees = 0.0f;
+
+    float diffuseIBLIntensity = 1.0f;
+    float specularIBLIntensity = 1.0f;
+
+    std::unique_ptr<Texture2D> brdfLutTexture;
+
+    vk::raii::Image irradianceCubeImage{ nullptr };
+    vk::raii::DeviceMemory irradianceCubeMemory{ nullptr };
+    vk::raii::ImageView irradianceCubeView{ nullptr };
+    vk::raii::Sampler irradianceCubeSampler{ nullptr };
+
+    vk::raii::Image prefilteredCubeImage{ nullptr };
+    vk::raii::DeviceMemory prefilteredCubeMemory{ nullptr };
+    vk::raii::ImageView prefilteredCubeView{ nullptr };
+    vk::raii::Sampler prefilteredCubeSampler{ nullptr };
+
+    void createCubemapFromDDS(
+        const std::string& path,
+        vk::raii::Image& outImage,
+        vk::raii::DeviceMemory& outMemory,
+        vk::raii::ImageView& outView,
+        vk::raii::Sampler& outSampler,
+        bool allowMipSampling);
+
+    void createIrradianceCubemapFromDDS(const std::string& path);
+    void createPrefilteredCubemapFromDDS(const std::string& path);
+
+    bool toneMappingEnabled = true;
+    bool gammaEnabled = true;
+    float postExposure = 1.0f;
 
     
     

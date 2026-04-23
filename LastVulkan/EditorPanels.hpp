@@ -85,6 +85,22 @@ namespace EditorPanels
         glm::vec3& lightColor,
         glm::vec3& ambientColor);
 
+    void drawEnvironmentPanel(
+        bool& showSkybox,
+        bool& enableIBL,
+        bool& debugReflectionOnly,
+        float& skyboxExposure,
+        float& skyboxLod,
+        float& iblIntensity,
+        float& diffuseIBLIntensity,
+        float& specularIBLIntensity,
+        float& environmentRotationDegrees);
+
+    void drawPostProcessPanel(
+        bool& toneMappingEnabled,
+        bool& gammaEnabled,
+        float& postExposure);
+
     void drawVerificationPanel(
         const Scene& scene,
         const EditorUiState& uiState,

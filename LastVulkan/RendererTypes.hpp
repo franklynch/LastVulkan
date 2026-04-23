@@ -113,6 +113,10 @@ struct UniformBufferObject
     glm::vec4 ambientColor{ 0.15f, 0.15f, 0.15f, 1.0f };
     glm::vec4 cameraPosition{ 0.0f, 0.0f, 0.0f, 1.0f };
 
+    glm::vec4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
+    glm::vec4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
+    glm::vec4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unused
+
 };
 
 struct PushConstantData

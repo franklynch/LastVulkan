@@ -25,5 +25,3 @@ ny = -Y
 pz = +Z
 nz = -Z
 
-drawLightingPanel
-drawAssetInspectionPanel

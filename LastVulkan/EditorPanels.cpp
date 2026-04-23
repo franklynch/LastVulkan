@@ -349,6 +349,49 @@ namespace EditorPanels
         }
     }
 
+    void EditorPanels::drawEnvironmentPanel(
+        bool& showSkybox,
+        bool& enableIBL,
+        bool& debugReflectionOnly,
+        float& skyboxExposure,
+        float& skyboxLod,
+        float& iblIntensity,
+        float& diffuseIBLIntensity,
+        float& specularIBLIntensity,
+        float& environmentRotationDegrees)
+    {
+        if (ImGui::CollapsingHeader("Environment / IBL", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Show Skybox", &showSkybox);
+            ImGui::Checkbox("Enable IBL", &enableIBL);
+            ImGui::Checkbox("Reflection Debug", &debugReflectionOnly);
+
+            ImGui::SliderFloat("Skybox Exposure", &skyboxExposure, 0.0f, 8.0f, "%.2f");
+            ImGui::SliderFloat("Skybox LOD", &skyboxLod, 0.0f, 8.0f, "%.2f");
+
+            ImGui::Separator();
+
+            ImGui::SliderFloat("IBL Intensity", &iblIntensity, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Diffuse IBL", &diffuseIBLIntensity, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Specular IBL", &specularIBLIntensity, 0.0f, 4.0f, "%.2f");
+
+            ImGui::SliderFloat("Environment Rotation", &environmentRotationDegrees, -180.0f, 180.0f, "%.1f deg");
+        }
+    }
+
+    void EditorPanels::drawPostProcessPanel(
+        bool& toneMappingEnabled,
+        bool& gammaEnabled,
+        float& postExposure)
+    {
+        if (ImGui::CollapsingHeader("Post Process", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Tone Mapping", &toneMappingEnabled);
+            ImGui::Checkbox("Gamma Correction", &gammaEnabled);
+            ImGui::SliderFloat("Post Exposure", &postExposure, 0.0f, 4.0f, "%.2f");
+        }
+    }
+
     void drawVerificationPanel(
         const Scene& scene,
         const EditorUiState& uiState,

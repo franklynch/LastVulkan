@@ -50,13 +50,13 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\dev\LastVulkan\LastVulkan\3party\tinygltf;C:\dev\LastVulkan\LastVulkan\3party\ImGui;C:\dev\LastVulkan\LastVulkan\3party\tinyobjloader;C:\dev\LastVulkan\LastVulkan\3party\stb;C:\dev\LastVulkan\LastVulkan\3party\glm;C:\dev\LastVulkan\LastVulkan\3party\GLFW\include;C:\VulkanSDK\1.4.341.1\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\dev\LastVulkan\LastVulkan\3party\DirectXTex\include;C:\dev\LastVulkan\LastVulkan\3party\tinygltf;C:\dev\LastVulkan\LastVulkan\3party\ImGui;C:\dev\LastVulkan\LastVulkan\3party\tinyobjloader;C:\dev\LastVulkan\LastVulkan\3party\stb;C:\dev\LastVulkan\LastVulkan\3party\glm;C:\dev\LastVulkan\LastVulkan\3party\GLFW\include;C:\VulkanSDK\1.4.341.1\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\VulkanSDK\1.4.341.1\Lib;C:\dev\LastVulkan\LastVulkan\3party\GLFW\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;vulkan-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\dev\LastVulkan\LastVulkan\3party\DirectXTex\lib;C:\VulkanSDK\1.4.341.1\Lib;C:\dev\LastVulkan\LastVulkan\3party\GLFW\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>glfw3.lib;vulkan-1.lib;DirectXTex.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -87,6 +87,7 @@
     <ClCompile Include="3party\ImGui\imgui_widgets.cpp" />
     <ClCompile Include="BufferUtils.cpp" />
     <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="DdsUtils.cpp" />
     <ClCompile Include="EditorPanels.cpp" />
     <ClCompile Include="GltfLoader.cpp" />
     <ClCompile Include="GpuMesh.cpp" />
@@ -111,6 +112,7 @@
     <ClInclude Include="3party\ImGui\imstb_truetype.h" />
     <ClInclude Include="BufferUtils.hpp" />
     <ClInclude Include="Camera.hpp" />
+    <ClInclude Include="DdsUtils.hpp" />
     <ClInclude Include="EditorPanels.hpp" />
     <ClInclude Include="EditorUiState.hpp" />
     <ClInclude Include="GltfLoader.hpp" />

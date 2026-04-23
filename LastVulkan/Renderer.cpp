@@ -17,6 +17,7 @@
 
 #include "EditorPanels.hpp"
 #include "GltfLoader.hpp"
+#include "DdsUtils.hpp"
 
 
 
@@ -43,6 +44,11 @@ Renderer::~Renderer()
 
 void Renderer::init()
 {
+   
+
+    
+    
+    
     createSwapChain();
     createImageViews();
     createDescriptorSetLayout();
@@ -311,21 +317,7 @@ void Renderer::init()
         throw std::runtime_error("glTF import produced no renderables");
     }
 
-    std::cout << "Imported glTF renderables: "
-        << imported.renderables.size()
-        << std::endl;
-
-    std::cout << "Imported glTF images: "
-        << imported.images.size()
-        << std::endl;
-
-    std::cout << "Imported engine textures: "
-        << textures.size()
-        << std::endl;
-
-    std::cout << "Imported engine materials: "
-        << materials.size()
-        << std::endl;
+   
 
     for (size_t i = 0; i < imported.renderables.size(); ++i)
     {
@@ -364,6 +356,16 @@ void Renderer::init()
 
     createFallbackIBLResources();
 
+    createIrradianceCubemapFromDDS("assets/ibl/output_iem.dds");
+    createPrefilteredCubemapFromDDS("assets/ibl/output_pmrem.dds");
+
+    brdfLutTexture = std::make_unique<Texture2D>(
+        vkContext,
+        bufferUtils,
+        imageUtils,
+        "assets/ibl/brdf_lut.png"
+    );
+
     createEnvironmentCubemap({
     "assets/skybox/right.jpg",
     "assets/skybox/left.jpg",
@@ -376,6 +378,8 @@ void Renderer::init()
         });
 
 
+
+
     updateIBLDescriptorSet();
        
     createSkyboxPipeline();
@@ -383,6 +387,9 @@ void Renderer::init()
     createCommandBuffers();
     createSyncObjects();
     initImGui();
+
+
+   
 }
 
 void Renderer::cleanupSwapChain()
@@ -1104,9 +1111,31 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     ubo.lightDirection = glm::vec4(glm::normalize(lightDirection), 0.0f);
     ubo.lightColor = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f);
     ubo.ambientColor = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+    ubo.cameraPosition = glm::vec4(camera.getPosition(), 1.0f);
+
+    ubo.environmentParams0 = glm::vec4(
+        skyboxExposure,
+        skyboxLod,
+        iblIntensity,
+        showSkybox ? 1.0f : 0.0f
+    );
+
+    ubo.environmentParams1 = glm::vec4(
+        diffuseIBLIntensity,
+        specularIBLIntensity,
+        debugReflectionOnly ? 1.0f : 0.0f,
+        enableIBL ? 1.0f : 0.0f
+    );
+
+    ubo.postProcessParams = glm::vec4(
+        postExposure,
+        toneMappingEnabled ? 1.0f : 0.0f,
+        gammaEnabled ? 1.0f : 0.0f,
+        glm::radians(environmentRotationDegrees)
+    );
 
     
-    ubo.cameraPosition = glm::vec4(camera.getPosition(), 1.0f);
+    
 
     std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 
@@ -1513,6 +1542,239 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     swapChainImageInitialized[imageIndex] = true;
 
     commandBuffer.end();
+}
+
+void Renderer::createIrradianceCubemapFromDDS(const std::string& path)
+{
+    createCubemapFromDDS(
+        path,
+        irradianceCubeImage,
+        irradianceCubeMemory,
+        irradianceCubeView,
+        irradianceCubeSampler,
+        false
+    );
+}
+
+void Renderer::createPrefilteredCubemapFromDDS(const std::string& path)
+{
+    createCubemapFromDDS(
+        path,
+        prefilteredCubeImage,
+        prefilteredCubeMemory,
+        prefilteredCubeView,
+        prefilteredCubeSampler,
+        true
+    );
+}
+
+void Renderer::createCubemapFromDDS(
+    const std::string& path,
+    vk::raii::Image& outImage,
+    vk::raii::DeviceMemory& outMemory,
+    vk::raii::ImageView& outView,
+    vk::raii::Sampler& outSampler,
+    bool allowMipSampling)
+{
+    DdsCubemapData dds = DdsUtils::loadCubemapDDS(path);
+
+    struct PackedRegion
+    {
+        vk::BufferImageCopy copyRegion{};
+        size_t size = 0;
+        const std::vector<uint8_t>* pixels = nullptr;
+    };
+
+    std::vector<PackedRegion> packedRegions;
+    packedRegions.reserve(dds.subresources.size());
+
+    vk::DeviceSize totalUploadSize = 0;
+
+    for (const auto& sub : dds.subresources)
+    {
+        PackedRegion region{};
+        region.size = sub.slicePitch;
+        region.pixels = &sub.pixels;
+
+        region.copyRegion
+            .setBufferOffset(totalUploadSize)
+            .setBufferRowLength(0)
+            .setBufferImageHeight(0)
+            .setImageSubresource(
+                vk::ImageSubresourceLayers{}
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setMipLevel(sub.mipLevel)
+                .setBaseArrayLayer(sub.arrayLayer)
+                .setLayerCount(1))
+            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+            .setImageExtent(vk::Extent3D{ sub.width, sub.height, 1 });
+
+        packedRegions.push_back(region);
+        totalUploadSize += static_cast<vk::DeviceSize>(sub.slicePitch);
+    }
+
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
+
+    bufferUtils.createBuffer(
+        totalUploadSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory
+    );
+
+    {
+        void* mapped = stagingMemory.mapMemory(0, totalUploadSize);
+        uint8_t* dst = static_cast<uint8_t*>(mapped);
+
+        vk::DeviceSize currentOffset = 0;
+        for (const auto& region : packedRegions)
+        {
+            std::memcpy(dst + currentOffset, region.pixels->data(), region.size);
+            currentOffset += static_cast<vk::DeviceSize>(region.size);
+        }
+
+        stagingMemory.unmapMemory();
+    }
+
+    auto& device = vkContext.getDevice();
+
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(dds.format)
+        .setExtent(vk::Extent3D{ dds.width, dds.height, 1 })
+        .setMipLevels(dds.mipLevels)
+        .setArrayLayers(6)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(
+            vk::ImageUsageFlagBits::eTransferDst |
+            vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
+
+    outImage = vk::raii::Image(device, imageInfo);
+
+    vk::MemoryRequirements memRequirements = outImage.getMemoryRequirements();
+
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memRequirements.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memRequirements.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal));
+
+    outMemory = vk::raii::DeviceMemory(device, allocInfo);
+    outImage.bindMemory(*outMemory, 0);
+
+    auto cmd = bufferUtils.beginSingleTimeCommands();
+
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*outImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(dds.mipLevels)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer
+    );
+
+    std::vector<vk::BufferImageCopy> copyRegions;
+    copyRegions.reserve(packedRegions.size());
+
+    for (const auto& region : packedRegions)
+    {
+        copyRegions.push_back(region.copyRegion);
+    }
+
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *outImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegions
+    );
+
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*outImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(dds.mipLevels)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead
+    );
+
+    bufferUtils.endSingleTimeCommands(cmd);
+
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*outImage)
+        .setViewType(vk::ImageViewType::eCube)
+        .setFormat(dds.format)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(dds.mipLevels)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6));
+
+    outView = vk::raii::ImageView(device, viewInfo);
+
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setMipLodBias(0.0f)
+        .setAnisotropyEnable(VK_FALSE)
+        .setCompareEnable(VK_FALSE)
+        .setMinLod(0.0f)
+        .setMaxLod(allowMipSampling ? static_cast<float>(dds.mipLevels - 1) : 0.0f)
+        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+        .setUnnormalizedCoordinates(VK_FALSE);
+
+    outSampler = vk::raii::Sampler(device, samplerInfo);
 }
 
 
@@ -2264,41 +2526,42 @@ void Renderer::updateIBLDescriptorSet()
         throw std::runtime_error("updateIBLDescriptorSet: iblDescriptorSet is null");
     }
 
-    if (fallbackBlackCubeView == nullptr || fallbackBlackCubeSampler == nullptr)
-    {
-        throw std::runtime_error("updateIBLDescriptorSet: fallback black cube is not initialized");
-    }
-
-    if (!fallbackBrdfLut ||
-        fallbackBrdfLut->getImageView() == nullptr ||
-        fallbackBrdfLut->getSampler() == nullptr)
-    {
-        throw std::runtime_error("updateIBLDescriptorSet: fallback BRDF LUT is not initialized");
-    }
-
-    if (environmentCubeView == nullptr || environmentCubeSampler == nullptr)
+    if (environmentCubeSampler == nullptr || environmentCubeView == nullptr)
     {
         throw std::runtime_error("updateIBLDescriptorSet: environment cubemap is not initialized");
     }
 
+    if (!brdfLutTexture ||
+        brdfLutTexture->getSampler() == nullptr ||
+        brdfLutTexture->getImageView() == nullptr)
+    {
+        throw std::runtime_error("updateIBLDescriptorSet: brdfLutTexture is not initialized");
+    }
+
     auto& device = vkContext.getDevice();
+
+    // Quick-hack setup:
+    // binding 0 = irradiance    -> environment cubemap
+    // binding 1 = prefiltered   -> environment cubemap
+    // binding 2 = BRDF LUT      -> real LUT texture
+    // binding 3 = environment   -> environment cubemap
 
     vk::DescriptorImageInfo irradianceInfo{};
     irradianceInfo
-        .setSampler(*fallbackBlackCubeSampler)
-        .setImageView(*fallbackBlackCubeView)
+        .setSampler(*irradianceCubeSampler)
+        .setImageView(*irradianceCubeView)
         .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
     vk::DescriptorImageInfo prefilteredInfo{};
     prefilteredInfo
-        .setSampler(*fallbackBlackCubeSampler)
-        .setImageView(*fallbackBlackCubeView)
+        .setSampler(*prefilteredCubeSampler)
+        .setImageView(*prefilteredCubeView)
         .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
     vk::DescriptorImageInfo brdfInfo{};
     brdfInfo
-        .setSampler(*fallbackBrdfLut->getSampler())
-        .setImageView(*fallbackBrdfLut->getImageView())
+        .setSampler(*brdfLutTexture->getSampler())
+        .setImageView(*brdfLutTexture->getImageView())
         .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
     vk::DescriptorImageInfo environmentInfo{};
@@ -2312,6 +2575,7 @@ void Renderer::updateIBLDescriptorSet()
     writes[0]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(0)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(irradianceInfo);
@@ -2319,6 +2583,7 @@ void Renderer::updateIBLDescriptorSet()
     writes[1]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(1)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(prefilteredInfo);
@@ -2326,6 +2591,7 @@ void Renderer::updateIBLDescriptorSet()
     writes[2]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(2)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(brdfInfo);
@@ -2333,13 +2599,13 @@ void Renderer::updateIBLDescriptorSet()
     writes[3]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(3)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(environmentInfo);
 
     device.updateDescriptorSets(writes, {});
 }
-
 
 
 
@@ -2670,6 +2936,24 @@ void Renderer::buildImGui()
             lightDirection,
             lightColor,
             ambientColor);
+
+        EditorPanels::drawEnvironmentPanel(
+            showSkybox,
+            enableIBL,
+            debugReflectionOnly,
+            skyboxExposure,
+            skyboxLod,
+            iblIntensity,
+            diffuseIBLIntensity,
+            specularIBLIntensity,
+            environmentRotationDegrees  );
+
+        EditorPanels::drawPostProcessPanel(
+            toneMappingEnabled,
+            gammaEnabled,
+            postExposure);
+
+
 
         if (!gpuMeshes.empty() && !materials.empty())
         {
