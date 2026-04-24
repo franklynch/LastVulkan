@@ -24,7 +24,7 @@ inline const std::string MODEL_PATH = "models/viking_room.obj";
 inline const std::string TEXTURE_PATH = "models/BoxTextured/glTF/CesiumLogoFlat.png";
 
 
-// C:\dev\LastVulkan\LastVulkan\models\NormalTangentMirrorTest\glTF
+
 
 inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -127,4 +127,15 @@ struct PushConstantData
     glm::vec4 baseColorFactor{ 1.0f, 1.0f, 1.0f, 1.0f };
     glm::vec4 materialParams{ 1.0f, 1.0f, 1.0f, 0.0f }; // x=metallic, y=roughness, z=normalScale, w=alphaCutoff
     glm::vec4 alphaModeParams{ 0.0f, 0.0f, 0.0f, 0.0f }; // x = isMask, y = isBlend (future), z/w unused
+};
+
+struct EquirectToCubePushConstants
+{
+    glm::mat4 viewProj{ 1.0f };
+};
+
+struct PrefilterPushConstants
+{
+    glm::mat4 viewProj{ 1.0f };      // 64 bytes
+    glm::vec4 params{ 0.0f };        // x = roughness, y/z/w unused
 };

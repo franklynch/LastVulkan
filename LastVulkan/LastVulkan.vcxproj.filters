@@ -169,5 +169,13 @@
     <None Include="shaders\skybox_vert.slang" />
     <None Include="shaders\skybox_frag.slang" />
     <None Include="shaders\shader.slang" />
+    <None Include="shaders\brdf_lut_vert.slang" />
+    <None Include="shaders\brdf_lut_frag.slang" />
+    <None Include="shaders\equirect_to_cube_vert.slang" />
+    <None Include="shaders\equirect_to_cube_frag.slang" />
+    <None Include="shaders\irradiance_vert.slang" />
+    <None Include="shaders\irradiance_frag.slang" />
+    <None Include="shaders\prefilter_vert.slang" />
+    <None Include="shaders\prefilter_frag.slang" />
   </ItemGroup>
 </Project>

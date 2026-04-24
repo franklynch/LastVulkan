@@ -298,6 +298,20 @@ private:
     vk::raii::ImageView fallbackBlackCubeView{ nullptr };
     vk::raii::Sampler fallbackBlackCubeSampler{ nullptr };
 
+    vk::raii::Image runtimeBrdfLutImage{ nullptr };
+    vk::raii::DeviceMemory runtimeBrdfLutMemory{ nullptr };
+    vk::raii::ImageView runtimeBrdfLutView{ nullptr };
+    vk::raii::Sampler runtimeBrdfLutSampler{ nullptr };
+
+    vk::raii::PipelineLayout brdfLutPipelineLayout{ nullptr };
+    vk::raii::Pipeline brdfLutPipeline{ nullptr };
+
+    void createRuntimeBrdfLutResources();
+    void createBrdfLutPipeline();
+    void renderBrdfLut();
+
+
+
     // --- IBL fallback setup ---
     void createFallbackIBLResources();
     void createFallbackBrdfLut();
@@ -369,6 +383,105 @@ private:
 
     vk::raii::Pipeline transparentPipeline = nullptr;
     vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;
+
+    vk::raii::Image hdrEnvironmentImage{ nullptr };
+    vk::raii::DeviceMemory hdrEnvironmentMemory{ nullptr };
+    vk::raii::ImageView hdrEnvironmentView{ nullptr };
+    vk::raii::Sampler hdrEnvironmentSampler{ nullptr };
+
+    uint32_t hdrEnvironmentWidth = 0;
+    uint32_t hdrEnvironmentHeight = 0;
+
+    void createHdrEnvironmentTexture(const std::string& path);
+
+    vk::raii::Image runtimeEnvironmentCubeImage{ nullptr };
+    vk::raii::DeviceMemory runtimeEnvironmentCubeMemory{ nullptr };
+    vk::raii::ImageView runtimeEnvironmentCubeView{ nullptr };
+    vk::raii::Sampler runtimeEnvironmentCubeSampler{ nullptr };
+
+    uint32_t runtimeEnvironmentCubeSize = 512;
+
+    void createRuntimeEnvironmentCubemapResources();
+
+    std::array<vk::raii::ImageView, 6> runtimeEnvironmentCubeFaceViews = {
+    nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+    };
+    
+    void createRuntimeEnvironmentCubemapFaceViews();
+
+    vk::raii::DescriptorSetLayout equirectToCubeDescriptorSetLayout{ nullptr };
+    vk::raii::DescriptorPool equirectToCubeDescriptorPool{ nullptr };
+    vk::raii::DescriptorSet equirectToCubeDescriptorSet{ nullptr };
+
+    vk::raii::PipelineLayout equirectToCubePipelineLayout{ nullptr };
+    vk::raii::Pipeline equirectToCubePipeline{ nullptr };
+
+    void createEquirectToCubeDescriptorResources();
+    void updateEquirectToCubeDescriptorSet();
+    void createEquirectToCubePipeline();
+    void renderEquirectToCubemap();
+
+    vk::raii::Image runtimeIrradianceCubeImage{ nullptr };
+    vk::raii::DeviceMemory runtimeIrradianceCubeMemory{ nullptr };
+    vk::raii::ImageView runtimeIrradianceCubeView{ nullptr };
+    vk::raii::Sampler runtimeIrradianceCubeSampler{ nullptr };
+
+    std::array<vk::raii::ImageView, 6> runtimeIrradianceCubeFaceViews = {
+        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+    };
+
+    uint32_t runtimeIrradianceCubeSize = 64;
+
+    void createRuntimeIrradianceCubemapResources();
+    void createRuntimeIrradianceCubemapFaceViews();
+    void createIrradiancePipeline();
+    void renderRuntimeIrradianceCubemap();
+
+    vk::raii::DescriptorSetLayout irradianceDescriptorSetLayout{ nullptr };
+    vk::raii::DescriptorPool irradianceDescriptorPool{ nullptr };
+    vk::raii::DescriptorSet irradianceDescriptorSet{ nullptr };
+
+    vk::raii::PipelineLayout irradiancePipelineLayout{ nullptr };
+    vk::raii::Pipeline irradiancePipeline{ nullptr };
+
+    void createIrradianceDescriptorResources();
+    void updateIrradianceDescriptorSet();
+
+    vk::raii::Image runtimePrefilteredCubeImage{ nullptr };
+    vk::raii::DeviceMemory runtimePrefilteredCubeMemory{ nullptr };
+    vk::raii::ImageView runtimePrefilteredCubeView{ nullptr };
+    vk::raii::Sampler runtimePrefilteredCubeSampler{ nullptr };
+
+    uint32_t runtimePrefilteredCubeSize = 256;
+    uint32_t runtimePrefilteredMipLevels = 7;
+
+    struct CubemapFaceViews
+    {
+        std::array<vk::raii::ImageView, 6> views = {
+            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+        };
+    };
+    
+    std::vector<CubemapFaceViews> runtimePrefilteredCubeMipFaceViews;
+
+    void createRuntimePrefilteredCubemapResources();
+    void createRuntimePrefilteredCubemapFaceViews();
+    void createPrefilterPipeline();
+    void renderRuntimePrefilteredCubemap();
+
+    vk::raii::DescriptorSetLayout prefilterDescriptorSetLayout{ nullptr };
+    vk::raii::DescriptorPool prefilterDescriptorPool{ nullptr };
+    vk::raii::DescriptorSet prefilterDescriptorSet{ nullptr };
+
+    vk::raii::PipelineLayout prefilterPipelineLayout{ nullptr };
+    vk::raii::Pipeline prefilterPipeline{ nullptr };
+
+    void createPrefilterDescriptorResources();
+    void updatePrefilterDescriptorSet();
+
+    
+
+    
   
 
     
