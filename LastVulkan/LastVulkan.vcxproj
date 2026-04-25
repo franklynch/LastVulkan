@@ -95,8 +95,10 @@
     <ClCompile Include="GltfLoader.cpp" />
     <ClCompile Include="GpuMesh.cpp" />
     <ClCompile Include="ImageUtils.cpp" />
+    <ClCompile Include="IrradianceRenderer.cpp" />
     <ClCompile Include="Material.cpp" />
     <ClCompile Include="ModelLoader.cpp" />
+    <ClCompile Include="PrefilterRenderer.cpp" />
     <ClCompile Include="ShaderUtils.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="Texture2D.cpp" />
@@ -126,9 +128,11 @@
     <ClInclude Include="GltfLoader.hpp" />
     <ClInclude Include="GpuMesh.hpp" />
     <ClInclude Include="ImageUtils.hpp" />
+    <ClInclude Include="IrradianceRenderer.hpp" />
     <ClInclude Include="Material.hpp" />
     <ClInclude Include="MeshData.hpp" />
     <ClInclude Include="ModelLoader.hpp" />
+    <ClInclude Include="PrefilterRenderer.hpp" />
     <ClInclude Include="Renderable.hpp" />
     <ClInclude Include="RendererTypes.hpp" />
     <ClInclude Include="Scene.hpp" />

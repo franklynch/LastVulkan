@@ -34,7 +34,8 @@ import vulkan_hpp;
 #include "EnvironmentUtils.hpp"
 #include "BrdfLutRenderer.hpp"
 #include "EnvironmentRenderer.hpp"
-
+#include "IrradianceRenderer.hpp"
+#include "PrefilterRenderer.hpp"
 
 
 
@@ -171,6 +172,8 @@ private:
     EnvironmentResources environment;
     std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
     std::unique_ptr<EnvironmentRenderer> environmentRenderer;
+    std::unique_ptr<IrradianceRenderer> irradianceRenderer;
+    std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
 
     float rotationSpeed = 90.0f;
@@ -410,18 +413,10 @@ private:
 
     void createRuntimeIrradianceCubemapResources();
     void createRuntimeIrradianceCubemapFaceViews();
-    void createIrradiancePipeline();
-    void renderRuntimeIrradianceCubemap();
+  
 
-    vk::raii::DescriptorSetLayout irradianceDescriptorSetLayout{ nullptr };
-    vk::raii::DescriptorPool irradianceDescriptorPool{ nullptr };
-    vk::raii::DescriptorSet irradianceDescriptorSet{ nullptr };
+   
 
-    vk::raii::PipelineLayout irradiancePipelineLayout{ nullptr };
-    vk::raii::Pipeline irradiancePipeline{ nullptr };
-
-    void createIrradianceDescriptorResources();
-    void updateIrradianceDescriptorSet();
 
     
 
@@ -431,21 +426,9 @@ private:
     
     
 
-    void createRuntimePrefilteredCubemapResources();
-    void createRuntimePrefilteredCubemapFaceViews();
-    void createPrefilterPipeline();
-    void renderRuntimePrefilteredCubemap();
-
-    vk::raii::DescriptorSetLayout prefilterDescriptorSetLayout{ nullptr };
-    vk::raii::DescriptorPool prefilterDescriptorPool{ nullptr };
-    vk::raii::DescriptorSet prefilterDescriptorSet{ nullptr };
-
-    vk::raii::PipelineLayout prefilterPipelineLayout{ nullptr };
-    vk::raii::Pipeline prefilterPipeline{ nullptr };
-
-    void createPrefilterDescriptorResources();
-    void updatePrefilterDescriptorSet();
-
+    
+    
+   
 
 
 
