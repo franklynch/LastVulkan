@@ -436,26 +436,3 @@ void IrradianceRenderer::render(EnvironmentResources& environment)
     std::cout << "Rendered runtime irradiance cubemap\n";
 }
 
-std::array<glm::mat4, 6> IrradianceRenderer::getCubemapCaptureViews() const
-{
-    return {
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(1,  0,  0), glm::vec3(0, -1,  0)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1,  0,  0), glm::vec3(0, -1,  0)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  1,  0), glm::vec3(0,  0,  1)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0, -1,  0), glm::vec3(0,  0, -1)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  0,  1), glm::vec3(0, -1,  0)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  0, -1), glm::vec3(0, -1,  0))
-    };
-}
-
-glm::mat4 IrradianceRenderer::getCubemapCaptureProjection() const
-{
-    glm::mat4 proj = glm::perspective(
-        glm::radians(90.0f),
-        1.0f,
-        0.1f,
-        10.0f);
-
-    proj[1][1] *= -1.0f;
-    return proj;
-}

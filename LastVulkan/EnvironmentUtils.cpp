@@ -1,5 +1,7 @@
 #include "EnvironmentUtils.hpp"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 void createCubemapResource(
     VulkanContext& vkContext,
     BufferUtils& bufferUtils,
@@ -71,4 +73,29 @@ void createCubemapResource(
 
     std::cout << "createCubemapResource size=" << size
         << " mips=" << mipLevels << "\n";
+}
+
+
+std::array<glm::mat4, 6> getCubemapCaptureViews()
+{
+    return {
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(1,  0,  0), glm::vec3(0, -1,  0)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1,  0,  0), glm::vec3(0, -1,  0)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  1,  0), glm::vec3(0,  0,  1)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0, -1,  0), glm::vec3(0,  0, -1)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  0,  1), glm::vec3(0, -1,  0)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  0, -1), glm::vec3(0, -1,  0))
+    };
+}
+
+glm::mat4 getCubemapCaptureProjection()
+{
+    glm::mat4 proj = glm::perspective(
+        glm::radians(90.0f),
+        1.0f,
+        0.1f,
+        10.0f);
+
+    proj[1][1] *= -1.0f;
+    return proj;
 }

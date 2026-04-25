@@ -41,6 +41,4 @@ private:
 
   
 
-    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
-    glm::mat4 getCubemapCaptureProjection() const;
 };

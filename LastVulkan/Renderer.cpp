@@ -3132,99 +3132,6 @@ void Renderer::createHdrEnvironmentTexture(const std::string& path)
         << hdrEnvironmentHeight << "\n";
 }
 
-
-void Renderer::createRuntimeIrradianceCubemapResources()
-{
-    createCubemapResource(
-        vkContext,
-        bufferUtils,
-        environment.runtimeIrradianceCube,
-        runtimeIrradianceCubeSize,
-        1,
-        vk::Format::eR16G16B16A16Sfloat,
-        vk::ImageUsageFlagBits::eColorAttachment |
-        vk::ImageUsageFlagBits::eSampled);
-
-    std::cout << "Prefilter source = runtime environment cube\n";
-    
-    std::cout << "Created runtime irradiance cubemap: "
-        << runtimeIrradianceCubeSize << "x"
-        << runtimeIrradianceCubeSize << "\n";
-}
-
-void Renderer::createRuntimeIrradianceCubemapFaceViews()
-{
-    if (environment.runtimeIrradianceCube.image == nullptr)
-    {
-        throw std::runtime_error(
-            "createRuntimeIrradianceCubemapFaceViews: runtimeIrradianceCubeImage is null");
-    }
-
-    auto& device = vkContext.getDevice();
-
-    const vk::Format cubeFormat = vk::Format::eR16G16B16A16Sfloat;
-
-    for (uint32_t face = 0; face < 6; ++face)
-    {
-        vk::ImageViewCreateInfo viewInfo{};
-        viewInfo
-            .setImage(*environment.runtimeIrradianceCube.image)
-            .setViewType(vk::ImageViewType::e2D)
-            .setFormat(cubeFormat)
-            .setSubresourceRange(
-                vk::ImageSubresourceRange{}
-                .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                .setBaseMipLevel(0)
-                .setLevelCount(1)
-                .setBaseArrayLayer(face)
-                .setLayerCount(1));
-
-        environment.runtimeIrradianceCubeFaces.views[face] =
-            vk::raii::ImageView(device, viewInfo);
-    }
-
-    std::cout << "Created runtime irradiance cubemap face views\n";
-}
-
-
-
-
-
-
-
-std::array<glm::mat4, 6> Renderer::getCubemapCaptureViews() const
-{
-    return {
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(1,0,0),  glm::vec3(0,-1,0)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1,0,0), glm::vec3(0,-1,0)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,1,0),  glm::vec3(0,0,1)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,-1,0), glm::vec3(0,0,-1)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,0,1),  glm::vec3(0,-1,0)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,0,-1), glm::vec3(0,-1,0))
-    };
-}
-
-glm::mat4 Renderer::getCubemapCaptureProjection() const
-{
-    glm::mat4 proj = glm::perspective(
-        glm::radians(90.0f),
-        1.0f,
-        0.1f,
-        10.0f);
-
-    proj[1][1] *= -1.0f;
-    return proj;
-}
-
-
-
-
-
-
-
-
-
-
 void Renderer::createSkyboxPipeline()
 {
     auto& device = vkContext.getDevice();
@@ -3517,7 +3424,7 @@ void Renderer::buildImGui()
 
         uint32_t totalVertexCount = 0;
         uint32_t totalIndexCount = 0;
-/*
+
         for (const auto& gpuMesh : gpuMeshes)
         {
             if (!gpuMesh)
@@ -3560,12 +3467,9 @@ void Renderer::buildImGui()
             minCameraRadius,
             maxCameraRadius);
 
-        EditorPanels::drawLightingPanel(
-            lightDirection,
-            lightColor,
-            ambientColor);
+       
 
-        EditorPanels::drawEnvironmentPanel(
+       EditorPanels::drawEnvironmentPanel(
             showSkybox,
             enableIBL,
             debugReflectionOnly,
@@ -3579,7 +3483,7 @@ void Renderer::buildImGui()
             rotateIBLLighting,
             [this]() { resetEnvironmentSettings(); });
 
-        EditorPanels::drawPostProcessPanel(
+ /*        EditorPanels::drawPostProcessPanel(
             toneMappingEnabled,
             gammaEnabled,
             postExposure);

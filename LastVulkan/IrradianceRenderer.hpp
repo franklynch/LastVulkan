@@ -36,6 +36,5 @@ private:
     vk::raii::PipelineLayout irradiancePipelineLayout{ nullptr };
     vk::raii::Pipeline irradiancePipeline{ nullptr };
 
-    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
-    glm::mat4 getCubemapCaptureProjection() const;
+
 };

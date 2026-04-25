@@ -4,6 +4,9 @@
 #include "VulkanContext.hpp"
 #include "BufferUtils.hpp"
 
+#include <array>
+#include <glm/glm.hpp>
+
 void createCubemapResource(
     VulkanContext& vkContext,
     BufferUtils& bufferUtils,
@@ -12,3 +15,6 @@ void createCubemapResource(
     uint32_t mipLevels,
     vk::Format format,
     vk::ImageUsageFlags usage);
+
+std::array<glm::mat4, 6> getCubemapCaptureViews();
+glm::mat4 getCubemapCaptureProjection();

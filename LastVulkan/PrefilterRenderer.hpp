@@ -37,7 +37,6 @@ private:
     vk::raii::PipelineLayout prefilterPipelineLayout{ nullptr };
     vk::raii::Pipeline prefilterPipeline{ nullptr };
 
-    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
-    glm::mat4 getCubemapCaptureProjection() const;
+
 
 };

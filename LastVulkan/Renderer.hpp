@@ -153,8 +153,8 @@ private:
 
 
 private:
-    Window& window;
-    VulkanContext& vkContext;
+    Window&             window;
+    VulkanContext&      vkContext;
     BufferUtils         bufferUtils;
     ImageUtils          imageUtils;
 
@@ -176,7 +176,7 @@ private:
     std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
 
-    float rotationSpeed = 90.0f;
+    float rotationSpeed = 10.0f;
 
 
     float cameraRadius = 3.0f;
@@ -295,13 +295,6 @@ private:
     vk::raii::Pipeline skyboxPipeline{ nullptr };
 
 
-
-
-
-
-
-
-
     // IBL descriptor set
     vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
     vk::raii::DescriptorSet iblDescriptorSet{ nullptr };
@@ -315,36 +308,22 @@ private:
     vk::raii::ImageView fallbackBlackCubeView{ nullptr };
     vk::raii::Sampler fallbackBlackCubeSampler{ nullptr };
 
-    
-
-
-
-
     // --- IBL fallback setup ---
     void createFallbackIBLResources();
     void createFallbackBrdfLut();
     void createFallbackBlackCube();
     void updateIBLDescriptorSet();
 
-    
-
-
-
     // --- Environment / IBL controls ---
     bool showSkybox = true;
     bool enableIBL = false;
     bool debugReflectionOnly = false;
-
     float skyboxExposure = 1.0f;
     float skyboxLod = 0.0f;
-
     float iblIntensity = 1.0f;
-
     float environmentRotationDegrees = 0.0f;
-
     bool rotateSkybox = true;
     bool rotateIBLLighting = true;
-
     float diffuseIBLIntensity = 1.0f;
     float specularIBLIntensity = 1.0f;
 
@@ -391,55 +370,10 @@ private:
     void createHdrEnvironmentTexture(const std::string& path);
 
 
-
-    uint32_t runtimeEnvironmentCubeSize = 512;
-
-    
-
-   
-
-    
-    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
-    glm::mat4 getCubemapCaptureProjection() const;
-    
-    
-    
-
-    
-
-    
-
-    uint32_t runtimeIrradianceCubeSize = 64;
-
-    void createRuntimeIrradianceCubemapResources();
-    void createRuntimeIrradianceCubemapFaceViews();
-  
-
-   
-
-
-    
-
-    uint32_t runtimePrefilteredCubeSize = 256;
-    uint32_t runtimePrefilteredMipLevels = 7;
-
-    
-    
-
-    
-    
-   
-
-
-
-
     vk::DescriptorImageInfo makeImageInfo(
         vk::Sampler sampler,
         vk::ImageView view) const;
 
-    
-
-
-
+  
 
 };
