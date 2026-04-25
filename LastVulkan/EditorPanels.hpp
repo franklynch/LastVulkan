@@ -51,10 +51,38 @@ namespace EditorPanels
         const Texture2D* selectedTexture,
         int selectedMaterialIndex);
 
-    void drawLightingPanel(
+  /*  void drawLightingPanel(
         glm::vec3& lightDirection,
         glm::vec3& lightColor,
-        glm::vec3& ambientColor);
+        float& lightIntensity,
+        glm::vec3& ambientColor,
+        float& ambientIntensity);; */
+
+    void drawLookDevPanel(
+        glm::vec3& lightDirection,
+        glm::vec3& lightColor,
+        float& lightIntensity,
+        glm::vec3& ambientColor,
+        float& ambientIntensity,
+
+        bool& showSkybox,
+        bool& enableIBL,
+        bool& debugReflectionOnly,
+        float& skyboxExposure,
+        float& skyboxLod,
+        float& iblIntensity,
+        float& diffuseIBLIntensity,
+        float& specularIBLIntensity,
+
+        bool& toneMappingEnabled,
+        bool& gammaEnabled,
+        float& postExposure,
+
+        float& environmentRotationDegrees,
+        bool& rotateSkybox,
+        bool& rotateIBLLighting,
+
+        const std::function<void()>& onResetEnvironment);
 
     void drawCameraPanel(
         Camera& camera,
@@ -80,10 +108,10 @@ namespace EditorPanels
         const Material* selectedMaterial,
         const Texture2D* selectedTexture);
 
-    void drawLightingPanel(
+   /* void drawLightingPanel(
         glm::vec3& lightDirection,
         glm::vec3& lightColor,
-        glm::vec3& ambientColor);
+        glm::vec3& ambientColor); */
 
     void drawEnvironmentPanel(
         bool& showSkybox,

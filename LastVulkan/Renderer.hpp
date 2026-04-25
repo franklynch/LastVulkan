@@ -30,6 +30,13 @@ import vulkan_hpp;
 #include "Camera.hpp"
 #include "Scene.hpp"
 #include "EditorUiState.hpp"
+#include "EnvironmentResources.hpp"
+#include "EnvironmentUtils.hpp"
+#include "BrdfLutRenderer.hpp"
+
+
+
+
 
 
 class Renderer
@@ -63,8 +70,8 @@ private:
     vk::Format findDepthFormat();
 
     bool hasStencilComponent(vk::Format format);
-       
-      
+
+
     void loadModel();
     void createUniformBuffers();
     void createDescriptorPool();
@@ -82,13 +89,13 @@ private:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
-    
 
-  
-    
-    
+
+
+
+
     void focusSelectedRenderable();
-    
+
     void resetDefaultSceneLayout();
 
     void cleanupDescriptorResources();
@@ -123,7 +130,7 @@ private:
         vk::Image image,
         vk::ImageAspectFlags aspectMask);
 
-    
+
 
     static uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
     static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
@@ -136,16 +143,16 @@ private:
     Texture2D& getDefaultTexture();
     Material& getDefaultMaterial();
 
-      
-    
-  
 
-    
-    
+
+
+
+
+
 
 private:
-    Window&             window;
-    VulkanContext&      vkContext;
+    Window& window;
+    VulkanContext& vkContext;
     BufferUtils         bufferUtils;
     ImageUtils          imageUtils;
 
@@ -158,9 +165,14 @@ private:
     vk::raii::Pipeline wireframeDoubleSidedPipeline = nullptr;
 
     std::string currentModelPath;
+     
+    
+    EnvironmentResources environment;
+    std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
+
 
     float rotationSpeed = 90.0f;
-    
+
 
     float cameraRadius = 3.0f;
     float cameraYaw = 0.0f;
@@ -201,7 +213,7 @@ private:
 
     std::vector<std::unique_ptr<Texture2D>>     metallicRoughnessTextures;
     std::unique_ptr<Texture2D>                  defaultMetallicRoughnessTexture;
-    
+
 
     vk::raii::SwapchainKHR              swapChain = nullptr;
     std::vector<vk::Image>              swapChainImages;
@@ -210,7 +222,7 @@ private:
     std::vector<vk::raii::ImageView>    swapChainImageViews;
 
     vk::raii::PipelineLayout            pipelineLayout = nullptr;
-   
+
 
     vk::raii::Image             colorImage = nullptr;
     vk::raii::DeviceMemory      colorImageMemory = nullptr;
@@ -224,7 +236,7 @@ private:
     vk::raii::ImageView         depthImageView = nullptr;
 
     std::vector<vk::raii::CommandBuffer> commandBuffers;
-        
+
     std::vector<vk::raii::Semaphore>    presentCompleteSemaphores;
     std::vector<vk::raii::Semaphore>    renderFinishedSemaphores;
     std::vector<vk::raii::Fence>        inFlightFences;
@@ -239,24 +251,24 @@ private:
 
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
 
-    
+
 
     std::vector<std::unique_ptr<Texture2D>> textures;
     std::vector<std::unique_ptr<Material>> materials;
 
-    
-   
+
+
     Scene scene;
 
     vk::raii::DescriptorPool        descriptorPool = nullptr;
     vk::raii::DescriptorSetLayout   frameDescriptorSetLayout = nullptr;
     vk::raii::DescriptorSetLayout   materialDescriptorSetLayout = nullptr;
-    
+
 
     std::vector<vk::raii::DescriptorSet> frameDescriptorSets;
     std::vector<vk::raii::DescriptorSet> materialDescriptorSets;
-    
-    
+
+
     std::vector<vk::raii::Buffer> uniformBuffers;
     std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
@@ -265,11 +277,11 @@ private:
     void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
     void createSkyboxPipeline();
     void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
-	void resetEnvironmentSettings();
-    
+    void resetEnvironmentSettings();
+
 
     vk::raii::Image environmentCubeImage{ nullptr };
-    
+
     vk::raii::DeviceMemory environmentCubeMemory{ nullptr };
     vk::raii::ImageView environmentCubeView{ nullptr };
     vk::raii::Sampler environmentCubeSampler{ nullptr };
@@ -277,14 +289,14 @@ private:
     vk::raii::PipelineLayout skyboxPipelineLayout{ nullptr };
     vk::raii::Pipeline skyboxPipeline{ nullptr };
 
-    
-    
 
-    
-    
 
-    
-    
+
+
+
+
+
+
     // IBL descriptor set
     vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
     vk::raii::DescriptorSet iblDescriptorSet{ nullptr };
@@ -298,17 +310,8 @@ private:
     vk::raii::ImageView fallbackBlackCubeView{ nullptr };
     vk::raii::Sampler fallbackBlackCubeSampler{ nullptr };
 
-    vk::raii::Image runtimeBrdfLutImage{ nullptr };
-    vk::raii::DeviceMemory runtimeBrdfLutMemory{ nullptr };
-    vk::raii::ImageView runtimeBrdfLutView{ nullptr };
-    vk::raii::Sampler runtimeBrdfLutSampler{ nullptr };
+    
 
-    vk::raii::PipelineLayout brdfLutPipelineLayout{ nullptr };
-    vk::raii::Pipeline brdfLutPipeline{ nullptr };
-
-    void createRuntimeBrdfLutResources();
-    void createBrdfLutPipeline();
-    void renderBrdfLut();
 
 
 
@@ -317,23 +320,11 @@ private:
     void createFallbackBrdfLut();
     void createFallbackBlackCube();
     void updateIBLDescriptorSet();
-    
-    void drawEnvironmentPanel(
-        bool& showSkybox,
-        bool& enableIBL,
-        bool& debugReflectionOnly,
-        float& skyboxExposure,
-        float& skyboxLod,
-        float& iblIntensity,
-        float& diffuseIBLIntensity,
-        float& specularIBLIntensity,
-        float& environmentRotationDegrees,
-        bool& rotateSkybox,
-        bool& rotateIBLLighting,
-        const std::function<void()>& onResetEnvironment);
+
     
 
-   
+
+
     // --- Environment / IBL controls ---
     bool showSkybox = true;
     bool enableIBL = false;
@@ -379,7 +370,7 @@ private:
     bool gammaEnabled = true;
     float postExposure = 1.0f;
 
-    
+
 
     vk::raii::Pipeline transparentPipeline = nullptr;
     vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;
@@ -394,19 +385,14 @@ private:
 
     void createHdrEnvironmentTexture(const std::string& path);
 
-    vk::raii::Image runtimeEnvironmentCubeImage{ nullptr };
-    vk::raii::DeviceMemory runtimeEnvironmentCubeMemory{ nullptr };
-    vk::raii::ImageView runtimeEnvironmentCubeView{ nullptr };
-    vk::raii::Sampler runtimeEnvironmentCubeSampler{ nullptr };
+
 
     uint32_t runtimeEnvironmentCubeSize = 512;
 
     void createRuntimeEnvironmentCubemapResources();
 
-    std::array<vk::raii::ImageView, 6> runtimeEnvironmentCubeFaceViews = {
-    nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
-    };
-    
+   
+
     void createRuntimeEnvironmentCubemapFaceViews();
 
     vk::raii::DescriptorSetLayout equirectToCubeDescriptorSetLayout{ nullptr };
@@ -421,14 +407,9 @@ private:
     void createEquirectToCubePipeline();
     void renderEquirectToCubemap();
 
-    vk::raii::Image runtimeIrradianceCubeImage{ nullptr };
-    vk::raii::DeviceMemory runtimeIrradianceCubeMemory{ nullptr };
-    vk::raii::ImageView runtimeIrradianceCubeView{ nullptr };
-    vk::raii::Sampler runtimeIrradianceCubeSampler{ nullptr };
+    
 
-    std::array<vk::raii::ImageView, 6> runtimeIrradianceCubeFaceViews = {
-        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
-    };
+    
 
     uint32_t runtimeIrradianceCubeSize = 64;
 
@@ -447,22 +428,13 @@ private:
     void createIrradianceDescriptorResources();
     void updateIrradianceDescriptorSet();
 
-    vk::raii::Image runtimePrefilteredCubeImage{ nullptr };
-    vk::raii::DeviceMemory runtimePrefilteredCubeMemory{ nullptr };
-    vk::raii::ImageView runtimePrefilteredCubeView{ nullptr };
-    vk::raii::Sampler runtimePrefilteredCubeSampler{ nullptr };
+    
 
     uint32_t runtimePrefilteredCubeSize = 256;
     uint32_t runtimePrefilteredMipLevels = 7;
 
-    struct CubemapFaceViews
-    {
-        std::array<vk::raii::ImageView, 6> views = {
-            nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
-        };
-    };
     
-    std::vector<CubemapFaceViews> runtimePrefilteredCubeMipFaceViews;
+    
 
     void createRuntimePrefilteredCubemapResources();
     void createRuntimePrefilteredCubemapFaceViews();
@@ -479,11 +451,18 @@ private:
     void createPrefilterDescriptorResources();
     void updatePrefilterDescriptorSet();
 
-    
+
+
+    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
+    glm::mat4 getCubemapCaptureProjection() const;
+
+    vk::DescriptorImageInfo makeImageInfo(
+        vk::Sampler sampler,
+        vk::ImageView view) const;
 
     
-  
 
-    
-    
+
+
+
 };

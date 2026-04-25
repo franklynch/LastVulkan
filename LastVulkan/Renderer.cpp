@@ -1,4 +1,4 @@
-#include "Renderer.hpp"
+ï»¿#include "Renderer.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -26,7 +26,7 @@
 
 
 
-#include <glm/gtc/matrix_transform.hpp>
+
 #include <chrono>
 
 
@@ -45,25 +45,25 @@ Renderer::~Renderer()
     shutdownImGui();
     vkContext.getDevice().waitIdle();
 
-    brdfLutPipeline = nullptr;
-    brdfLutPipelineLayout = nullptr;
+    environment.runtimeBrdfLut.pipeline = nullptr;
+    environment.runtimeBrdfLut.layout = nullptr;
 
-    runtimeBrdfLutSampler = nullptr;
-    runtimeBrdfLutView = nullptr;
-    runtimeBrdfLutMemory = nullptr;
-    runtimeBrdfLutImage = nullptr;
+    environment.runtimeBrdfLut.sampler = nullptr;
+    environment.runtimeBrdfLut.view = nullptr;
+    environment.runtimeBrdfLut.memory = nullptr;
+    environment.runtimeBrdfLut.image = nullptr;
 
-    for (auto& view : runtimeEnvironmentCubeFaceViews)
+    for (auto& view : environment.runtimeEnvironmentCubeFaces.views)
     {
         view = nullptr;
     }
 
-    runtimeEnvironmentCubeSampler = nullptr;
-    runtimeEnvironmentCubeView = nullptr;
-    runtimeEnvironmentCubeMemory = nullptr;
-    runtimeEnvironmentCubeImage = nullptr;
+    environment.runtimeEnvironmentCube.sampler = nullptr;
+    environment.runtimeEnvironmentCube.view = nullptr;
+    environment.runtimeEnvironmentCube.memory = nullptr;
+    environment.runtimeEnvironmentCube.image = nullptr;
 
-    for (auto& mipViews : runtimePrefilteredCubeMipFaceViews)
+    for (auto& mipViews : environment.runtimePrefilteredCubeMipFaceViews)
     {
         for (auto& view : mipViews.views)
         {
@@ -71,12 +71,12 @@ Renderer::~Renderer()
         }
     }
 
-    runtimePrefilteredCubeMipFaceViews.clear();
+    environment.runtimePrefilteredCubeMipFaceViews.clear();
 
-    runtimePrefilteredCubeSampler = nullptr;
-    runtimePrefilteredCubeView = nullptr;
-    runtimePrefilteredCubeMemory = nullptr;
-    runtimePrefilteredCubeImage = nullptr;
+    environment.runtimePrefilteredCube.sampler = nullptr;
+    environment.runtimePrefilteredCube.view = nullptr;
+    environment.runtimePrefilteredCube.memory = nullptr;
+    environment.runtimePrefilteredCube.image = nullptr;
 
     equirectToCubePipeline = nullptr;
     equirectToCubePipelineLayout = nullptr;
@@ -90,22 +90,22 @@ Renderer::~Renderer()
     hdrEnvironmentMemory = nullptr;
     hdrEnvironmentImage = nullptr;
 
-    for (auto& view : runtimeIrradianceCubeFaceViews)
+    for (auto& view : environment.runtimeIrradianceCubeFaces.views)
     {
         view = nullptr;
     }
 
-    runtimeIrradianceCubeSampler = nullptr;
-    runtimeIrradianceCubeView = nullptr;
-    runtimeIrradianceCubeMemory = nullptr;
-    runtimeIrradianceCubeImage = nullptr;
+    environment.runtimeIrradianceCube.sampler = nullptr;
+    environment.runtimeIrradianceCube.view = nullptr;
+    environment.runtimeIrradianceCube.memory = nullptr;
+    environment.runtimeIrradianceCube.image = nullptr;
 
     cleanupDescriptorResources();
 }
 
 void Renderer::init()
 {
-   
+
     createSwapChain();
     createImageViews();
     createDescriptorSetLayout();
@@ -155,7 +155,7 @@ void Renderer::init()
         "Default MetallicRoughness",
         vk::Format::eR8G8B8A8Unorm);
 
-    
+
 
     // Slot 0 = default fallback texture
     textures.push_back(std::make_unique<Texture2D>(
@@ -176,9 +176,9 @@ void Renderer::init()
     GltfLoader loader;
     GltfSceneData imported = loader.load(currentModelPath);
 
-       
 
-    
+
+
 
     if (textures.empty())
     {
@@ -264,7 +264,7 @@ void Renderer::init()
 
         gltfImageToMRTextureIndex[i] = static_cast<int>(metallicRoughnessTextures.size()) - 1;
     }
-    
+
     std::vector<int> gltfImageToTextureIndex(imported.images.size(), -1);
 
     for (size_t i = 0; i < imported.images.size(); ++i)
@@ -297,7 +297,7 @@ void Renderer::init()
 
         gltfImageToTextureIndex[i] = static_cast<int>(textures.size()) - 1;
 
-        
+
 
 
     }
@@ -374,7 +374,7 @@ void Renderer::init()
         throw std::runtime_error("glTF import produced no renderables");
     }
 
-   
+
 
     for (size_t i = 0; i < imported.renderables.size(); ++i)
     {
@@ -431,19 +431,23 @@ void Renderer::init()
     "assets/skybox/top.jpg",
     "assets/skybox/bottom.jpg",
     "assets/skybox/front.jpg",
-    "assets/skybox/back.jpg"});
+    "assets/skybox/back.jpg" });
 
     createHdrEnvironmentTexture("assets/hdr/studio.hdr");
     createRuntimeEnvironmentCubemapResources();
+    std::cout << "runtime env image valid: "
+        << (environment.runtimeEnvironmentCube.image != nullptr)
+        << "\n";
     createRuntimeEnvironmentCubemapFaceViews();
     createEquirectToCubeDescriptorResources();
     updateEquirectToCubeDescriptorSet();
     createEquirectToCubePipeline();
     renderEquirectToCubemap();
-    createRuntimeBrdfLutResources();
-    createBrdfLutPipeline();
-    renderBrdfLut();
-    std::cout << "Runtime BRDF LUT generated successfully\n";
+    
+    brdfLutRenderer = std::make_unique<BrdfLutRenderer>(vkContext, bufferUtils);
+    brdfLutRenderer->init(environment);
+
+    
 
     createRuntimeIrradianceCubemapResources();
     createRuntimeIrradianceCubemapFaceViews();
@@ -451,24 +455,27 @@ void Renderer::init()
     updateIrradianceDescriptorSet();
     createIrradiancePipeline();
     renderRuntimeIrradianceCubemap();
-    
+
     createRuntimePrefilteredCubemapResources();
+
     createRuntimePrefilteredCubemapFaceViews();
+
     createPrefilterDescriptorResources();
     updatePrefilterDescriptorSet();
     createPrefilterPipeline();
+
     renderRuntimePrefilteredCubemap();
 
     updateIBLDescriptorSet();
-       
+
     createSkyboxPipeline();
-     
+
     createCommandBuffers();
     createSyncObjects();
     initImGui();
 
 
-   
+
 }
 
 void Renderer::cleanupSwapChain()
@@ -1018,7 +1025,7 @@ void Renderer::createDepthResources()
     );
 }
 
-    
+
 
 
 vk::Format Renderer::findSupportedFormat(const std::vector<vk::Format>& candidates,
@@ -1075,7 +1082,7 @@ void Renderer::createCommandBuffers()
 void Renderer::loadModel()
 {
     std::cout << "Loading model: " << MODEL_PATH << std::endl;
-    
+
     meshData = modelLoader.load(MODEL_PATH);
 
     if (meshData.empty())
@@ -1158,7 +1165,7 @@ void Renderer::createDescriptorSets()
     auto& device = vkContext.getDevice();
 
     // =========================
-    // Set 0 — Frame UBO sets
+    // Set 0 Â— Frame UBO sets
     // =========================
 
     std::vector<vk::DescriptorSetLayout> layouts(
@@ -1193,7 +1200,7 @@ void Renderer::createDescriptorSets()
     }
 
     // =========================
-    // Set 2 — IBL descriptor set
+    // Set 2 Â— IBL descriptor set
     // =========================
 
     vk::DescriptorSetAllocateInfo iblAllocInfo{};
@@ -1300,14 +1307,14 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         0.0f
     );
 
-    
-    
+
+
 
     std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 
-    
 
-    };
+
+};
 
 void Renderer::createMaterialDescriptorSets()
 {
@@ -1490,7 +1497,7 @@ void Renderer::drawFrame()
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void Renderer::recordCommandBuffer(uint32_t imageIndex) 
+void Renderer::recordCommandBuffer(uint32_t imageIndex)
 {
     auto& commandBuffer = commandBuffers[frameIndex];
     commandBuffer.begin(vk::CommandBufferBeginInfo{});
@@ -2176,7 +2183,7 @@ void Renderer::transitionToDepthAttachment(
 }
 
 
- void Renderer::resetDefaultSceneLayout()
+void Renderer::resetDefaultSceneLayout()
 {
     auto& renderables = scene.getRenderables();
 
@@ -2214,226 +2221,226 @@ void Renderer::transitionToDepthAttachment(
 }
 
 
- void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePaths)
- {
-     auto& device = vkContext.getDevice();
+void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePaths)
+{
+    auto& device = vkContext.getDevice();
 
-     int texWidth = 0;
-     int texHeight = 0;
-     int texChannels = 0;
+    int texWidth = 0;
+    int texHeight = 0;
+    int texChannels = 0;
 
-     std::vector<stbi_uc*> facePixels(6, nullptr);
+    std::vector<stbi_uc*> facePixels(6, nullptr);
 
-     for (size_t i = 0; i < 6; ++i)
-     {
-         int w = 0, h = 0, c = 0;
-         facePixels[i] = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
-         if (!facePixels[i])
-         {
-             throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
-         }
+    for (size_t i = 0; i < 6; ++i)
+    {
+        int w = 0, h = 0, c = 0;
+        facePixels[i] = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
+        if (!facePixels[i])
+        {
+            throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
+        }
 
-         if (i == 0)
-         {
-             texWidth = w;
-             texHeight = h;
-             texChannels = 4;
-         }
-         else
-         {
-             if (w != texWidth || h != texHeight)
-             {
-                 throw std::runtime_error("Cubemap faces must all have the same dimensions");
-             }
-         }
-     }
+        if (i == 0)
+        {
+            texWidth = w;
+            texHeight = h;
+            texChannels = 4;
+        }
+        else
+        {
+            if (w != texWidth || h != texHeight)
+            {
+                throw std::runtime_error("Cubemap faces must all have the same dimensions");
+            }
+        }
+    }
 
-     const vk::DeviceSize faceSize =
-         static_cast<vk::DeviceSize>(texWidth) *
-         static_cast<vk::DeviceSize>(texHeight) * 4;
+    const vk::DeviceSize faceSize =
+        static_cast<vk::DeviceSize>(texWidth) *
+        static_cast<vk::DeviceSize>(texHeight) * 4;
 
-     const vk::DeviceSize totalSize = faceSize * 6;
+    const vk::DeviceSize totalSize = faceSize * 6;
 
-     vk::raii::Buffer stagingBuffer{ nullptr };
-     vk::raii::DeviceMemory stagingMemory{ nullptr };
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
 
-     bufferUtils.createBuffer(
-         totalSize,
-         vk::BufferUsageFlagBits::eTransferSrc,
-         vk::MemoryPropertyFlagBits::eHostVisible |
-         vk::MemoryPropertyFlagBits::eHostCoherent,
-         stagingBuffer,
-         stagingMemory
-     );
+    bufferUtils.createBuffer(
+        totalSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory
+    );
 
-     void* mapped = stagingMemory.mapMemory(0, totalSize);
-     unsigned char* dst = static_cast<unsigned char*>(mapped);
+    void* mapped = stagingMemory.mapMemory(0, totalSize);
+    unsigned char* dst = static_cast<unsigned char*>(mapped);
 
-     for (size_t i = 0; i < 6; ++i)
-     {
-         std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
-     }
+    for (size_t i = 0; i < 6; ++i)
+    {
+        std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
+    }
 
-     stagingMemory.unmapMemory();
+    stagingMemory.unmapMemory();
 
-     for (auto* pixels : facePixels)
-     {
-         stbi_image_free(pixels);
-     }
+    for (auto* pixels : facePixels)
+    {
+        stbi_image_free(pixels);
+    }
 
-     const vk::Format format = vk::Format::eR8G8B8A8Srgb;
+    const vk::Format format = vk::Format::eR8G8B8A8Srgb;
 
-     vk::ImageCreateInfo imageInfo{};
-     imageInfo
-         .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
-         .setImageType(vk::ImageType::e2D)
-         .setFormat(format)
-         .setExtent(vk::Extent3D{
-             static_cast<uint32_t>(texWidth),
-             static_cast<uint32_t>(texHeight),
-             1
-             })
-         .setMipLevels(1)
-         .setArrayLayers(6)
-         .setSamples(vk::SampleCountFlagBits::e1)
-         .setTiling(vk::ImageTiling::eOptimal)
-         .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
-         .setSharingMode(vk::SharingMode::eExclusive)
-         .setInitialLayout(vk::ImageLayout::eUndefined);
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(format)
+        .setExtent(vk::Extent3D{
+            static_cast<uint32_t>(texWidth),
+            static_cast<uint32_t>(texHeight),
+            1
+            })
+        .setMipLevels(1)
+        .setArrayLayers(6)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
 
-     environmentCubeImage = vk::raii::Image(device, imageInfo);
+    environmentCubeImage = vk::raii::Image(device, imageInfo);
 
-     vk::MemoryRequirements memReq = environmentCubeImage.getMemoryRequirements();
+    vk::MemoryRequirements memReq = environmentCubeImage.getMemoryRequirements();
 
-     vk::MemoryAllocateInfo allocInfo{};
-     allocInfo
-         .setAllocationSize(memReq.size)
-         .setMemoryTypeIndex(
-             bufferUtils.findMemoryType(
-                 memReq.memoryTypeBits,
-                 vk::MemoryPropertyFlagBits::eDeviceLocal
-             )
-         );
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memReq.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memReq.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            )
+        );
 
-     environmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
-     environmentCubeImage.bindMemory(*environmentCubeMemory, 0);
+    environmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
+    environmentCubeImage.bindMemory(*environmentCubeMemory, 0);
 
-     auto cmd = bufferUtils.beginSingleTimeCommands();
+    auto cmd = bufferUtils.beginSingleTimeCommands();
 
-     vk::ImageMemoryBarrier toTransfer{};
-     toTransfer
-         .setOldLayout(vk::ImageLayout::eUndefined)
-         .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setImage(*environmentCubeImage)
-         .setSubresourceRange(
-             vk::ImageSubresourceRange{}
-             .setAspectMask(vk::ImageAspectFlagBits::eColor)
-             .setBaseMipLevel(0)
-             .setLevelCount(1)
-             .setBaseArrayLayer(0)
-             .setLayerCount(6))
-         .setSrcAccessMask({})
-         .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*environmentCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
 
-     cmd.pipelineBarrier(
-         vk::PipelineStageFlagBits::eTopOfPipe,
-         vk::PipelineStageFlagBits::eTransfer,
-         {},
-         nullptr,
-         nullptr,
-         toTransfer
-     );
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer
+    );
 
-     std::array<vk::BufferImageCopy, 6> copyRegions{};
-     for (uint32_t face = 0; face < 6; ++face)
-     {
-         copyRegions[face]
-             .setBufferOffset(face * faceSize)
-             .setBufferRowLength(0)
-             .setBufferImageHeight(0)
-             .setImageSubresource(
-                 vk::ImageSubresourceLayers{}
-                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                 .setMipLevel(0)
-                 .setBaseArrayLayer(face)
-                 .setLayerCount(1))
-             .setImageOffset(vk::Offset3D{ 0, 0, 0 })
-             .setImageExtent(vk::Extent3D{
-                 static_cast<uint32_t>(texWidth),
-                 static_cast<uint32_t>(texHeight),
-                 1
-                 });
-     }
+    std::array<vk::BufferImageCopy, 6> copyRegions{};
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        copyRegions[face]
+            .setBufferOffset(face * faceSize)
+            .setBufferRowLength(0)
+            .setBufferImageHeight(0)
+            .setImageSubresource(
+                vk::ImageSubresourceLayers{}
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setMipLevel(0)
+                .setBaseArrayLayer(face)
+                .setLayerCount(1))
+            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+            .setImageExtent(vk::Extent3D{
+                static_cast<uint32_t>(texWidth),
+                static_cast<uint32_t>(texHeight),
+                1
+                });
+    }
 
-     cmd.copyBufferToImage(
-         *stagingBuffer,
-         *environmentCubeImage,
-         vk::ImageLayout::eTransferDstOptimal,
-         copyRegions
-     );
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *environmentCubeImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegions
+    );
 
-     vk::ImageMemoryBarrier toShaderRead{};
-     toShaderRead
-         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setImage(*environmentCubeImage)
-         .setSubresourceRange(
-             vk::ImageSubresourceRange{}
-             .setAspectMask(vk::ImageAspectFlagBits::eColor)
-             .setBaseMipLevel(0)
-             .setLevelCount(1)
-             .setBaseArrayLayer(0)
-             .setLayerCount(6))
-         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-         .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*environmentCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
 
-     cmd.pipelineBarrier(
-         vk::PipelineStageFlagBits::eTransfer,
-         vk::PipelineStageFlagBits::eFragmentShader,
-         {},
-         nullptr,
-         nullptr,
-         toShaderRead
-     );
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead
+    );
 
-     bufferUtils.endSingleTimeCommands(cmd);
+    bufferUtils.endSingleTimeCommands(cmd);
 
-     vk::ImageViewCreateInfo viewInfo{};
-     viewInfo
-         .setImage(*environmentCubeImage)
-         .setViewType(vk::ImageViewType::eCube)
-         .setFormat(format)
-         .setSubresourceRange(
-             vk::ImageSubresourceRange{}
-             .setAspectMask(vk::ImageAspectFlagBits::eColor)
-             .setBaseMipLevel(0)
-             .setLevelCount(1)
-             .setBaseArrayLayer(0)
-             .setLayerCount(6));
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*environmentCubeImage)
+        .setViewType(vk::ImageViewType::eCube)
+        .setFormat(format)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6));
 
-     environmentCubeView = vk::raii::ImageView(device, viewInfo);
+    environmentCubeView = vk::raii::ImageView(device, viewInfo);
 
-     vk::SamplerCreateInfo samplerInfo{};
-     samplerInfo
-         .setMagFilter(vk::Filter::eLinear)
-         .setMinFilter(vk::Filter::eLinear)
-         .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-         .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-         .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-         .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-         .setAnisotropyEnable(VK_FALSE)
-         .setMaxAnisotropy(1.0f)
-         .setMinLod(0.0f)
-         .setMaxLod(0.0f)
-         .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
-         .setUnnormalizedCoordinates(VK_FALSE);
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setAnisotropyEnable(VK_FALSE)
+        .setMaxAnisotropy(1.0f)
+        .setMinLod(0.0f)
+        .setMaxLod(0.0f)
+        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+        .setUnnormalizedCoordinates(VK_FALSE);
 
-     environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
- }
+    environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
+}
 
 
 void Renderer::cleanupDescriptorResources()
@@ -2494,7 +2501,7 @@ vk::Extent2D Renderer::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabi
         .setCodeSize(code.size())
         .setPCode(reinterpret_cast<const uint32_t*>(code.data()));
 
-    
+
     vk::raii::ShaderModule     shaderModule{ vkContext.getDevice(), createInfo };
 
     return shaderModule;
@@ -2837,109 +2844,49 @@ void Renderer::updateIBLDescriptorSet()
 
     if (environmentCubeSampler == nullptr || environmentCubeView == nullptr)
     {
-        throw std::runtime_error("updateIBLDescriptorSet: environment cubemap is not initialized");
+        throw std::runtime_error("updateIBLDescriptorSet: fallback environment cubemap is not initialized");
     }
 
     if (!brdfLutTexture ||
         brdfLutTexture->getSampler() == nullptr ||
         brdfLutTexture->getImageView() == nullptr)
     {
-        throw std::runtime_error("updateIBLDescriptorSet: brdfLutTexture is not initialized");
+        throw std::runtime_error("updateIBLDescriptorSet: fallback BRDF LUT texture is not initialized");
     }
 
     auto& device = vkContext.getDevice();
 
-    // Quick-hack setup:
-    // binding 0 = irradiance    -> environment cubemap
-    // binding 1 = prefiltered   -> environment cubemap
-    // binding 2 = BRDF LUT      -> real LUT texture
-    // binding 3 = environment   -> environment cubemap
-
     const bool useRuntimeIrradiance =
-        runtimeIrradianceCubeSampler != nullptr &&
-        runtimeIrradianceCubeView != nullptr;
-
-    vk::DescriptorImageInfo irradianceInfo{};
-
-    if (useRuntimeIrradiance)
-    {
-        irradianceInfo
-            .setSampler(*runtimeIrradianceCubeSampler)
-            .setImageView(*runtimeIrradianceCubeView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
-    else
-    {
-        irradianceInfo
-            .setSampler(*irradianceCubeSampler)
-            .setImageView(*irradianceCubeView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
+        environment.runtimeIrradianceCube.sampler != nullptr &&
+        environment.runtimeIrradianceCube.view != nullptr;
 
     const bool useRuntimePrefiltered =
-        runtimePrefilteredCubeSampler != nullptr &&
-        runtimePrefilteredCubeView != nullptr;
-
-    vk::DescriptorImageInfo prefilteredInfo{};
-
-    if (useRuntimePrefiltered)
-    {
-        prefilteredInfo
-            .setSampler(*runtimePrefilteredCubeSampler)
-            .setImageView(*runtimePrefilteredCubeView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
-    else
-    {
-        prefilteredInfo
-            .setSampler(*prefilteredCubeSampler)
-            .setImageView(*prefilteredCubeView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
+        environment.runtimePrefilteredCube.sampler != nullptr &&
+        environment.runtimePrefilteredCube.view != nullptr;
 
     const bool useRuntimeBrdf =
-        runtimeBrdfLutSampler != nullptr &&
-        runtimeBrdfLutView != nullptr;
-
-    vk::DescriptorImageInfo brdfInfo{};
-
-    if (useRuntimeBrdf)
-    {
-        brdfInfo
-            .setSampler(*runtimeBrdfLutSampler)
-            .setImageView(*runtimeBrdfLutView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-        
-    }
-    else
-    {
-        brdfInfo
-            .setSampler(*brdfLutTexture->getSampler())
-            .setImageView(*brdfLutTexture->getImageView())
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
+        environment.runtimeBrdfLut.sampler != nullptr &&
+        environment.runtimeBrdfLut.view != nullptr;
 
     const bool useRuntimeEnvironment =
-        runtimeEnvironmentCubeSampler != nullptr &&
-        runtimeEnvironmentCubeView != nullptr;
+        environment.runtimeEnvironmentCube.sampler != nullptr &&
+        environment.runtimeEnvironmentCube.view != nullptr;
 
-    vk::DescriptorImageInfo environmentInfo{};
+    auto irradianceInfo = useRuntimeIrradiance
+        ? makeImageInfo(environment.runtimeIrradianceCube.sampler, environment.runtimeIrradianceCube.view)
+        : makeImageInfo(*irradianceCubeSampler, *irradianceCubeView);
 
-    if (useRuntimeEnvironment)
-    {
-        environmentInfo
-            .setSampler(*runtimeEnvironmentCubeSampler)
-            .setImageView(*runtimeEnvironmentCubeView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
-    else
-    {
-        environmentInfo
-            .setSampler(*environmentCubeSampler)
-            .setImageView(*environmentCubeView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-    }
+    auto prefilteredInfo = useRuntimePrefiltered
+        ? makeImageInfo(environment.runtimePrefilteredCube.sampler, environment.runtimePrefilteredCube.view)
+        : makeImageInfo(*prefilteredCubeSampler, *prefilteredCubeView);
+
+    auto brdfInfo = useRuntimeBrdf
+        ? makeImageInfo(environment.runtimeBrdfLut.sampler, environment.runtimeBrdfLut.view)
+        : makeImageInfo(brdfLutTexture->getSampler(), brdfLutTexture->getImageView());
+
+    auto environmentInfo = useRuntimeEnvironment
+        ? makeImageInfo(environment.runtimeEnvironmentCube.sampler, environment.runtimeEnvironmentCube.view)
+        : makeImageInfo(*environmentCubeSampler, *environmentCubeView);
 
     std::array<vk::WriteDescriptorSet, 4> writes{};
 
@@ -2976,15 +2923,6 @@ void Renderer::updateIBLDescriptorSet()
         .setImageInfo(environmentInfo);
 
     device.updateDescriptorSets(writes, {});
-
-    if (useRuntimeEnvironment)
-    {
-        std::cout << "Using runtime HDR cubemap for environment\n";
-    }
-    else
-    {
-        std::cout << "Using fallback JPG cubemap for environment\n";
-    }
 }
 
 void Renderer::resetEnvironmentSettings()
@@ -3010,313 +2948,6 @@ void Renderer::resetEnvironmentSettings()
 }
 
 
-void Renderer::createRuntimeBrdfLutResources()
-{
-    auto& device = vkContext.getDevice();
-
-    constexpr uint32_t lutWidth = 256;
-    constexpr uint32_t lutHeight = 256;
-    constexpr vk::Format lutFormat = vk::Format::eR16G16Sfloat;
-
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo
-        .setImageType(vk::ImageType::e2D)
-        .setFormat(lutFormat)
-        .setExtent(vk::Extent3D{ lutWidth, lutHeight, 1 })
-        .setMipLevels(1)
-        .setArrayLayers(1)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setUsage(
-            vk::ImageUsageFlagBits::eColorAttachment |
-            vk::ImageUsageFlagBits::eSampled)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined);
-
-    runtimeBrdfLutImage = vk::raii::Image(device, imageInfo);
-
-    vk::MemoryRequirements memRequirements = runtimeBrdfLutImage.getMemoryRequirements();
-
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memRequirements.size)
-        .setMemoryTypeIndex(
-            bufferUtils.findMemoryType(
-                memRequirements.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-    runtimeBrdfLutMemory = vk::raii::DeviceMemory(device, allocInfo);
-    runtimeBrdfLutImage.bindMemory(*runtimeBrdfLutMemory, 0);
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo
-        .setImage(*runtimeBrdfLutImage)
-        .setViewType(vk::ImageViewType::e2D)
-        .setFormat(lutFormat)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1));
-
-    runtimeBrdfLutView = vk::raii::ImageView(device, viewInfo);
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setMipLodBias(0.0f)
-        .setAnisotropyEnable(VK_FALSE)
-        .setCompareEnable(VK_FALSE)
-        .setMinLod(0.0f)
-        .setMaxLod(0.0f)
-        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-        .setUnnormalizedCoordinates(VK_FALSE);
-
-    runtimeBrdfLutSampler = vk::raii::Sampler(device, samplerInfo);
-}
-
-void Renderer::createBrdfLutPipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(readFile("shaders/brdf_lut_vert.spv"));
-
-    vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(readFile("shaders/brdf_lut_frag.spv"));
-
-    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
-    vertShaderStageInfo
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
-    fragShaderStageInfo
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertShaderStageInfo,
-        fragShaderStageInfo
-    };
-
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo
-        .setVertexBindingDescriptions({})
-        .setVertexAttributeDescriptions({});
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG
-        );
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setAttachments(colorBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    brdfLutPipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineCreateInfoChain{};
-
-    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInputInfo)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*brdfLutPipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    std::array<vk::Format, 1> brdfColorFormats = {
-    vk::Format::eR16G16Sfloat
-    };
-
-    pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(brdfColorFormats);
-
-    brdfLutPipeline = vk::raii::Pipeline(
-        device,
-        nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-    );
-}
-
-void Renderer::renderBrdfLut()
-{
-    if (runtimeBrdfLutImage == nullptr ||
-        runtimeBrdfLutView == nullptr ||
-        brdfLutPipeline == nullptr ||
-        brdfLutPipelineLayout == nullptr)
-    {
-        throw std::runtime_error("renderBrdfLut: resources or pipeline not initialized");
-    }
-
-    constexpr uint32_t lutWidth = 256;
-    constexpr uint32_t lutHeight = 256;
-
-    auto cmd = bufferUtils.beginSingleTimeCommands();
-
-    // Undefined -> Color Attachment
-    vk::ImageMemoryBarrier toColorAttachment{};
-    toColorAttachment
-        .setOldLayout(vk::ImageLayout::eUndefined)
-        .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimeBrdfLutImage)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1))
-        .setSrcAccessMask({})
-        .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTopOfPipe,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        {},
-        nullptr,
-        nullptr,
-        toColorAttachment);
-
-    vk::ClearValue clearValue{};
-    clearValue.setColor(vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f }));
-
-    vk::RenderingAttachmentInfo colorAttachment{};
-    colorAttachment
-        .setImageView(*runtimeBrdfLutView)
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(clearValue);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(
-            vk::Rect2D{}
-            .setOffset(vk::Offset2D{ 0, 0 })
-            .setExtent(vk::Extent2D{ lutWidth, lutHeight }))
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachment);
-
-    cmd.beginRendering(renderingInfo);
-
-    cmd.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(lutWidth),
-            static_cast<float>(lutHeight),
-            0.0f,
-            1.0f));
-
-    cmd.setScissor(
-        0,
-        vk::Rect2D(
-            vk::Offset2D{ 0, 0 },
-            vk::Extent2D{ lutWidth, lutHeight }));
-
-    cmd.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *brdfLutPipeline);
-
-    cmd.draw(3, 1, 0, 0);
-
-    cmd.endRendering();
-
-    // Color Attachment -> Shader Read
-    vk::ImageMemoryBarrier toShaderRead{};
-    toShaderRead
-        .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimeBrdfLutImage)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1))
-        .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eFragmentShader,
-        {},
-        nullptr,
-        nullptr,
-        toShaderRead);
-
-    bufferUtils.endSingleTimeCommands(cmd);
-}
 
 void Renderer::createHdrEnvironmentTexture(const std::string& path)
 {
@@ -3515,88 +3146,27 @@ void Renderer::createHdrEnvironmentTexture(const std::string& path)
 
 void Renderer::createRuntimeEnvironmentCubemapResources()
 {
-    auto& device = vkContext.getDevice();
-
-    const uint32_t cubeSize = runtimeEnvironmentCubeSize;
-    const vk::Format cubeFormat = vk::Format::eR16G16B16A16Sfloat;
-
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo
-        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
-        .setImageType(vk::ImageType::e2D)
-        .setFormat(cubeFormat)
-        .setExtent(vk::Extent3D{ cubeSize, cubeSize, 1 })
-        .setMipLevels(1)
-        .setArrayLayers(6)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setUsage(
-            vk::ImageUsageFlagBits::eColorAttachment |
-            vk::ImageUsageFlagBits::eSampled |
-            vk::ImageUsageFlagBits::eTransferSrc |
-            vk::ImageUsageFlagBits::eTransferDst)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined);
-
-    runtimeEnvironmentCubeImage = vk::raii::Image(device, imageInfo);
-
-    vk::MemoryRequirements memRequirements =
-        runtimeEnvironmentCubeImage.getMemoryRequirements();
-
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memRequirements.size)
-        .setMemoryTypeIndex(
-            bufferUtils.findMemoryType(
-                memRequirements.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-    runtimeEnvironmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
-    runtimeEnvironmentCubeImage.bindMemory(*runtimeEnvironmentCubeMemory, 0);
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo
-        .setImage(*runtimeEnvironmentCubeImage)
-        .setViewType(vk::ImageViewType::eCube)
-        .setFormat(cubeFormat)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(6));
-
-    runtimeEnvironmentCubeView = vk::raii::ImageView(device, viewInfo);
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setMipLodBias(0.0f)
-        .setAnisotropyEnable(VK_FALSE)
-        .setCompareEnable(VK_FALSE)
-        .setMinLod(0.0f)
-        .setMaxLod(0.0f)
-        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-        .setUnnormalizedCoordinates(VK_FALSE);
-
-    runtimeEnvironmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
+    createCubemapResource(
+        vkContext,
+        bufferUtils,
+        environment.runtimeEnvironmentCube,
+        runtimeEnvironmentCubeSize,
+        1,
+        vk::Format::eR16G16B16A16Sfloat,
+        vk::ImageUsageFlagBits::eColorAttachment |
+        vk::ImageUsageFlagBits::eSampled);
 
     std::cout << "Created runtime environment cubemap: "
-        << cubeSize << "x" << cubeSize << "\n";
+        << runtimeEnvironmentCubeSize << "x"
+        << runtimeEnvironmentCubeSize << "\n";
 }
 
 void Renderer::createRuntimeEnvironmentCubemapFaceViews()
 {
-    if (runtimeEnvironmentCubeImage == nullptr)
+    if (environment.runtimeEnvironmentCube.image == nullptr)
     {
         throw std::runtime_error(
-            "createRuntimeEnvironmentCubemapFaceViews: runtimeEnvironmentCubeImage is null");
+            "createRuntimeEnvironmentCubemapFaceViews: environment.runtimeEnvironmentCube.image is null");
     }
 
     auto& device = vkContext.getDevice();
@@ -3607,7 +3177,7 @@ void Renderer::createRuntimeEnvironmentCubemapFaceViews()
     {
         vk::ImageViewCreateInfo viewInfo{};
         viewInfo
-            .setImage(*runtimeEnvironmentCubeImage)
+            .setImage(*environment.runtimeEnvironmentCube.image)
             .setViewType(vk::ImageViewType::e2D)
             .setFormat(cubeFormat)
             .setSubresourceRange(
@@ -3618,7 +3188,7 @@ void Renderer::createRuntimeEnvironmentCubemapFaceViews()
                 .setBaseArrayLayer(face)
                 .setLayerCount(1));
 
-        runtimeEnvironmentCubeFaceViews[face] =
+        environment.runtimeEnvironmentCubeFaces.views[face] =
             vk::raii::ImageView(device, viewInfo);
     }
 
@@ -3829,7 +3399,7 @@ void Renderer::createEquirectToCubePipeline()
 
 void Renderer::renderEquirectToCubemap()
 {
-    if (runtimeEnvironmentCubeImage == nullptr ||
+    if (environment.runtimeEnvironmentCube.image == nullptr ||
         equirectToCubePipeline == nullptr ||
         equirectToCubePipelineLayout == nullptr)
     {
@@ -3839,22 +3409,8 @@ void Renderer::renderEquirectToCubemap()
     constexpr vk::Format cubeFormat = vk::Format::eR16G16B16A16Sfloat;
     const uint32_t cubeSize = runtimeEnvironmentCubeSize;
 
-    glm::mat4 captureProjection = glm::perspective(
-        glm::radians(90.0f),
-        1.0f,
-        0.1f,
-        10.0f);
-
-    captureProjection[1][1] *= -1.0f;
-
-    std::array<glm::mat4, 6> captureViews = {
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
-    };
+    auto captureProjection = getCubemapCaptureProjection();
+    auto captureViews = getCubemapCaptureViews();
 
     auto cmd = bufferUtils.beginSingleTimeCommands();
 
@@ -3864,7 +3420,7 @@ void Renderer::renderEquirectToCubemap()
         .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimeEnvironmentCubeImage)
+        .setImage(*environment.runtimeEnvironmentCube.image)
         .setSubresourceRange(
             vk::ImageSubresourceRange{}
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -3890,7 +3446,7 @@ void Renderer::renderEquirectToCubemap()
 
         vk::RenderingAttachmentInfo colorAttachment{};
         colorAttachment
-            .setImageView(*runtimeEnvironmentCubeFaceViews[face])
+            .setImageView(*environment.runtimeEnvironmentCubeFaces.views[face])
             .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
             .setLoadOp(vk::AttachmentLoadOp::eClear)
             .setStoreOp(vk::AttachmentStoreOp::eStore)
@@ -3954,7 +3510,7 @@ void Renderer::renderEquirectToCubemap()
         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimeEnvironmentCubeImage)
+        .setImage(*environment.runtimeEnvironmentCube.image)
         .setSubresourceRange(
             vk::ImageSubresourceRange{}
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -3980,83 +3536,26 @@ void Renderer::renderEquirectToCubemap()
 
 void Renderer::createRuntimeIrradianceCubemapResources()
 {
-    auto& device = vkContext.getDevice();
+    createCubemapResource(
+        vkContext,
+        bufferUtils,
+        environment.runtimeIrradianceCube,
+        runtimeIrradianceCubeSize,
+        1,
+        vk::Format::eR16G16B16A16Sfloat,
+        vk::ImageUsageFlagBits::eColorAttachment |
+        vk::ImageUsageFlagBits::eSampled);
 
-    const uint32_t cubeSize = runtimeIrradianceCubeSize;
-    const vk::Format cubeFormat = vk::Format::eR16G16B16A16Sfloat;
-
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo
-        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
-        .setImageType(vk::ImageType::e2D)
-        .setFormat(cubeFormat)
-        .setExtent(vk::Extent3D{ cubeSize, cubeSize, 1 })
-        .setMipLevels(1)
-        .setArrayLayers(6)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setUsage(
-            vk::ImageUsageFlagBits::eColorAttachment |
-            vk::ImageUsageFlagBits::eSampled)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined);
-
-    runtimeIrradianceCubeImage = vk::raii::Image(device, imageInfo);
-
-    vk::MemoryRequirements memRequirements =
-        runtimeIrradianceCubeImage.getMemoryRequirements();
-
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memRequirements.size)
-        .setMemoryTypeIndex(
-            bufferUtils.findMemoryType(
-                memRequirements.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-    runtimeIrradianceCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
-    runtimeIrradianceCubeImage.bindMemory(*runtimeIrradianceCubeMemory, 0);
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo
-        .setImage(*runtimeIrradianceCubeImage)
-        .setViewType(vk::ImageViewType::eCube)
-        .setFormat(cubeFormat)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(6));
-
-    runtimeIrradianceCubeView = vk::raii::ImageView(device, viewInfo);
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setMipLodBias(0.0f)
-        .setAnisotropyEnable(VK_FALSE)
-        .setCompareEnable(VK_FALSE)
-        .setMinLod(0.0f)
-        .setMaxLod(0.0f)
-        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-        .setUnnormalizedCoordinates(VK_FALSE);
-
-    runtimeIrradianceCubeSampler = vk::raii::Sampler(device, samplerInfo);
-
+    std::cout << "Prefilter source = runtime environment cube\n";
+    
     std::cout << "Created runtime irradiance cubemap: "
-        << cubeSize << "x" << cubeSize << "\n";
+        << runtimeIrradianceCubeSize << "x"
+        << runtimeIrradianceCubeSize << "\n";
 }
 
 void Renderer::createRuntimeIrradianceCubemapFaceViews()
 {
-    if (runtimeIrradianceCubeImage == nullptr)
+    if (environment.runtimeIrradianceCube.image == nullptr)
     {
         throw std::runtime_error(
             "createRuntimeIrradianceCubemapFaceViews: runtimeIrradianceCubeImage is null");
@@ -4070,7 +3569,7 @@ void Renderer::createRuntimeIrradianceCubemapFaceViews()
     {
         vk::ImageViewCreateInfo viewInfo{};
         viewInfo
-            .setImage(*runtimeIrradianceCubeImage)
+            .setImage(*environment.runtimeIrradianceCube.image)
             .setViewType(vk::ImageViewType::e2D)
             .setFormat(cubeFormat)
             .setSubresourceRange(
@@ -4081,7 +3580,7 @@ void Renderer::createRuntimeIrradianceCubemapFaceViews()
                 .setBaseArrayLayer(face)
                 .setLayerCount(1));
 
-        runtimeIrradianceCubeFaceViews[face] =
+        environment.runtimeIrradianceCubeFaces.views[face] =
             vk::raii::ImageView(device, viewInfo);
     }
 
@@ -4130,8 +3629,8 @@ void Renderer::createIrradianceDescriptorResources()
 
 void Renderer::updateIrradianceDescriptorSet()
 {
-    if (runtimeEnvironmentCubeSampler == nullptr ||
-        runtimeEnvironmentCubeView == nullptr)
+    if (environment.runtimeEnvironmentCube.sampler == nullptr ||
+        environment.runtimeEnvironmentCube.view == nullptr)
     {
         throw std::runtime_error(
             "updateIrradianceDescriptorSet: runtime environment cubemap is not initialized");
@@ -4139,8 +3638,8 @@ void Renderer::updateIrradianceDescriptorSet()
 
     vk::DescriptorImageInfo envInfo{};
     envInfo
-        .setSampler(*runtimeEnvironmentCubeSampler)
-        .setImageView(*runtimeEnvironmentCubeView)
+        .setSampler(*environment.runtimeEnvironmentCube.sampler)
+        .setImageView(*environment.runtimeEnvironmentCube.view)
         .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
     vk::WriteDescriptorSet write{};
@@ -4297,35 +3796,21 @@ void Renderer::createIrradiancePipeline()
 
 void Renderer::renderRuntimeIrradianceCubemap()
 {
-    if (runtimeIrradianceCubeImage == nullptr ||
+    if (environment.runtimeIrradianceCube.image == nullptr ||
         irradiancePipeline == nullptr ||
         irradiancePipelineLayout == nullptr)
     {
         throw std::runtime_error("renderRuntimeIrradianceCubemap: resources not initialized");
     }
 
-    std::cout << "runtimeIrradianceCubeImage: " << (runtimeIrradianceCubeImage != nullptr) << "\n";
+    std::cout << "runtimeIrradianceCubeImage: " << (environment.runtimeIrradianceCube.image != nullptr) << "\n";
     std::cout << "irradiancePipelineLayout: " << (irradiancePipelineLayout != nullptr) << "\n";
     std::cout << "irradiancePipeline: " << (irradiancePipeline != nullptr) << "\n";
 
     const uint32_t cubeSize = runtimeIrradianceCubeSize;
 
-    glm::mat4 captureProjection = glm::perspective(
-        glm::radians(90.0f),
-        1.0f,
-        0.1f,
-        10.0f);
-
-    captureProjection[1][1] *= -1.0f;
-
-    std::array<glm::mat4, 6> captureViews = {
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
-    };
+    auto captureProjection = getCubemapCaptureProjection();
+    auto captureViews = getCubemapCaptureViews();
 
     auto cmd = bufferUtils.beginSingleTimeCommands();
 
@@ -4335,7 +3820,7 @@ void Renderer::renderRuntimeIrradianceCubemap()
         .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimeIrradianceCubeImage)
+        .setImage(*environment.runtimeIrradianceCube.image)
         .setSubresourceRange(
             vk::ImageSubresourceRange{}
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -4362,7 +3847,7 @@ void Renderer::renderRuntimeIrradianceCubemap()
 
         vk::RenderingAttachmentInfo colorAttachment{};
         colorAttachment
-            .setImageView(*runtimeIrradianceCubeFaceViews[face])
+            .setImageView(*environment.runtimeIrradianceCubeFaces.views[face])
             .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
             .setLoadOp(vk::AttachmentLoadOp::eClear)
             .setStoreOp(vk::AttachmentStoreOp::eStore)
@@ -4426,7 +3911,7 @@ void Renderer::renderRuntimeIrradianceCubemap()
         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimeIrradianceCubeImage)
+        .setImage(*environment.runtimeIrradianceCube.image)
         .setSubresourceRange(
             vk::ImageSubresourceRange{}
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -4452,85 +3937,25 @@ void Renderer::renderRuntimeIrradianceCubemap()
 
 void Renderer::createRuntimePrefilteredCubemapResources()
 {
-    auto& device = vkContext.getDevice();
-
-    const uint32_t cubeSize = runtimePrefilteredCubeSize;
-    const uint32_t mipLevels = runtimePrefilteredMipLevels;
-    const vk::Format cubeFormat = vk::Format::eR16G16B16A16Sfloat;
-
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo
-        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
-        .setImageType(vk::ImageType::e2D)
-        .setFormat(cubeFormat)
-        .setExtent(vk::Extent3D{ cubeSize, cubeSize, 1 })
-        .setMipLevels(mipLevels)
-        .setArrayLayers(6)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setUsage(
-            vk::ImageUsageFlagBits::eColorAttachment |
-            vk::ImageUsageFlagBits::eSampled)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined);
-
-    runtimePrefilteredCubeImage = vk::raii::Image(device, imageInfo);
-
-    vk::MemoryRequirements memRequirements =
-        runtimePrefilteredCubeImage.getMemoryRequirements();
-
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memRequirements.size)
-        .setMemoryTypeIndex(
-            bufferUtils.findMemoryType(
-                memRequirements.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-    runtimePrefilteredCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
-    runtimePrefilteredCubeImage.bindMemory(*runtimePrefilteredCubeMemory, 0);
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo
-        .setImage(*runtimePrefilteredCubeImage)
-        .setViewType(vk::ImageViewType::eCube)
-        .setFormat(cubeFormat)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(mipLevels)
-            .setBaseArrayLayer(0)
-            .setLayerCount(6));
-
-    runtimePrefilteredCubeView = vk::raii::ImageView(device, viewInfo);
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setMipLodBias(0.0f)
-        .setAnisotropyEnable(VK_FALSE)
-        .setCompareEnable(VK_FALSE)
-        .setMinLod(0.0f)
-        .setMaxLod(static_cast<float>(mipLevels - 1))
-        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-        .setUnnormalizedCoordinates(VK_FALSE);
-
-    runtimePrefilteredCubeSampler = vk::raii::Sampler(device, samplerInfo);
+    createCubemapResource(
+        vkContext,
+        bufferUtils,
+        environment.runtimePrefilteredCube,
+        runtimePrefilteredCubeSize,
+        runtimePrefilteredMipLevels,
+        vk::Format::eR16G16B16A16Sfloat,
+        vk::ImageUsageFlagBits::eColorAttachment |
+        vk::ImageUsageFlagBits::eSampled);
 
     std::cout << "Created runtime prefiltered cubemap: "
-        << cubeSize << "x" << cubeSize
-        << ", mips=" << mipLevels << "\n";
+        << runtimePrefilteredCubeSize << "x"
+        << runtimePrefilteredCubeSize
+        << " mips=" << runtimePrefilteredMipLevels << "\n";
 }
 
 void Renderer::createRuntimePrefilteredCubemapFaceViews()
 {
-    if (runtimePrefilteredCubeImage == nullptr)
+    if (environment.runtimePrefilteredCube.image == nullptr)
     {
         throw std::runtime_error(
             "createRuntimePrefilteredCubemapFaceViews: runtimePrefilteredCubeImage is null");
@@ -4540,8 +3965,8 @@ void Renderer::createRuntimePrefilteredCubemapFaceViews()
 
     const vk::Format cubeFormat = vk::Format::eR16G16B16A16Sfloat;
 
-    runtimePrefilteredCubeMipFaceViews.clear();
-    runtimePrefilteredCubeMipFaceViews.resize(runtimePrefilteredMipLevels);
+    environment.runtimePrefilteredCubeMipFaceViews.clear();
+    environment.runtimePrefilteredCubeMipFaceViews.resize(runtimePrefilteredMipLevels);
 
     for (uint32_t mip = 0; mip < runtimePrefilteredMipLevels; ++mip)
     {
@@ -4549,7 +3974,7 @@ void Renderer::createRuntimePrefilteredCubemapFaceViews()
         {
             vk::ImageViewCreateInfo viewInfo{};
             viewInfo
-                .setImage(*runtimePrefilteredCubeImage)
+                .setImage(*environment.runtimePrefilteredCube.image)
                 .setViewType(vk::ImageViewType::e2D)
                 .setFormat(cubeFormat)
                 .setSubresourceRange(
@@ -4560,8 +3985,8 @@ void Renderer::createRuntimePrefilteredCubemapFaceViews()
                     .setBaseArrayLayer(face)
                     .setLayerCount(1));
 
-            runtimePrefilteredCubeMipFaceViews[mip].views[face] =
-                vk::raii::ImageView(device, viewInfo);
+            environment.runtimePrefilteredCubeMipFaceViews[mip].views[face] =
+            vk::raii::ImageView(device, viewInfo);
         }
     }
 
@@ -4610,8 +4035,8 @@ void Renderer::createPrefilterDescriptorResources()
 
 void Renderer::updatePrefilterDescriptorSet()
 {
-    if (runtimeEnvironmentCubeSampler == nullptr ||
-        runtimeEnvironmentCubeView == nullptr)
+    if (environment.runtimeEnvironmentCube.sampler == nullptr ||
+        environment.runtimeEnvironmentCube.view == nullptr)
     {
         throw std::runtime_error(
             "updatePrefilterDescriptorSet: runtime environment cubemap is not initialized");
@@ -4619,8 +4044,8 @@ void Renderer::updatePrefilterDescriptorSet()
 
     vk::DescriptorImageInfo envInfo{};
     envInfo
-        .setSampler(*runtimeEnvironmentCubeSampler)
-        .setImageView(*runtimeEnvironmentCubeView)
+        .setSampler(*environment.runtimeEnvironmentCube.sampler)
+        .setImageView(*environment.runtimeEnvironmentCube.view)
         .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 
     vk::WriteDescriptorSet write{};
@@ -4633,7 +4058,7 @@ void Renderer::updatePrefilterDescriptorSet()
         .setImageInfo(envInfo);
 
     vkContext.getDevice().updateDescriptorSets(write, {});
-}   
+}
 
 void Renderer::createPrefilterPipeline()
 {
@@ -4745,7 +4170,7 @@ void Renderer::createPrefilterPipeline()
         vk::Format::eR16G16B16A16Sfloat
     };
 
-    vk::StructureChain< 
+    vk::StructureChain<
         vk::GraphicsPipelineCreateInfo,
         vk::PipelineRenderingCreateInfo
     > pipelineChain{};
@@ -4772,37 +4197,30 @@ void Renderer::createPrefilterPipeline()
             nullptr,
             pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
 
-  
+
 }
 
 void Renderer::renderRuntimePrefilteredCubemap()
 {
-    if (runtimePrefilteredCubeImage == nullptr ||
+       
+    
+    if (environment.runtimePrefilteredCube.image == nullptr ||
         prefilterPipeline == nullptr ||
         prefilterPipelineLayout == nullptr)
     {
         throw std::runtime_error("renderRuntimePrefilteredCubemap: resources not initialized");
     }
 
+    if (environment.runtimePrefilteredCubeMipFaceViews.size() < runtimePrefilteredMipLevels)
+    {
+        throw std::runtime_error("renderRuntimePrefilteredCubemap: mip face views not initialized");
+    }
+
     const uint32_t baseSize = runtimePrefilteredCubeSize;
     const uint32_t mipLevels = runtimePrefilteredMipLevels;
 
-    glm::mat4 captureProjection = glm::perspective(
-        glm::radians(90.0f),
-        1.0f,
-        0.1f,
-        10.0f);
-
-    captureProjection[1][1] *= -1.0f;
-
-    std::array<glm::mat4, 6> captureViews = {
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f)),
-        glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
-    };
+    auto captureProjection = getCubemapCaptureProjection();
+    auto captureViews = getCubemapCaptureViews();
 
     auto cmd = bufferUtils.beginSingleTimeCommands();
 
@@ -4812,7 +4230,7 @@ void Renderer::renderRuntimePrefilteredCubemap()
         .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimePrefilteredCubeImage)
+        .setImage(*environment.runtimePrefilteredCube.image)
         .setSubresourceRange(
             vk::ImageSubresourceRange{}
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -4858,7 +4276,7 @@ void Renderer::renderRuntimePrefilteredCubemap()
 
             vk::RenderingAttachmentInfo colorAttachment{};
             colorAttachment
-                .setImageView(*runtimePrefilteredCubeMipFaceViews[mip].views[face])
+                .setImageView(*environment.runtimePrefilteredCubeMipFaceViews[mip].views[face])
                 .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
                 .setLoadOp(vk::AttachmentLoadOp::eClear)
                 .setStoreOp(vk::AttachmentStoreOp::eStore)
@@ -4913,7 +4331,7 @@ void Renderer::renderRuntimePrefilteredCubemap()
         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*runtimePrefilteredCubeImage)
+        .setImage(*environment.runtimePrefilteredCube.image)
         .setSubresourceRange(
             vk::ImageSubresourceRange{}
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -4996,7 +4414,7 @@ void Renderer::createSkyboxPipeline()
     depthStencil
         .setDepthTestEnable(VK_FALSE)
         .setDepthWriteEnable(VK_FALSE)
-        
+
         .setDepthBoundsTestEnable(VK_FALSE)
         .setStencilTestEnable(VK_FALSE);
 
@@ -5117,6 +4535,42 @@ void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t image
     commandBuffer.draw(3, 1, 0, 0);
 }
 
+std::array<glm::mat4, 6> Renderer::getCubemapCaptureViews() const
+{
+    return {
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(1,  0,  0), glm::vec3(0, -1,  0)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(-1,  0,  0), glm::vec3(0, -1,  0)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  1,  0), glm::vec3(0,  0,  1)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0, -1,  0), glm::vec3(0,  0, -1)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  0,  1), glm::vec3(0, -1,  0)),
+        glm::lookAt(glm::vec3(0.0f), glm::vec3(0,  0, -1), glm::vec3(0, -1,  0))
+    };
+}
+
+glm::mat4 Renderer::getCubemapCaptureProjection() const
+{
+    glm::mat4 proj = glm::perspective(
+        glm::radians(90.0f),
+        1.0f,
+        0.1f,
+        10.0f);
+
+    proj[1][1] *= -1.0f; // Vulkan clip space fix
+
+    return proj;
+}
+
+vk::DescriptorImageInfo Renderer::makeImageInfo(
+    vk::Sampler sampler,
+    vk::ImageView view) const
+{
+    return vk::DescriptorImageInfo{}
+        .setSampler(sampler)
+        .setImageView(view)
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+}
+
+
 void Renderer::initImGui()
 {
     auto& device = vkContext.getDevice();
@@ -5165,7 +4619,7 @@ void Renderer::initImGui()
     initInfo.CheckVkResultFn = nullptr;
 
     VkFormat colorFormat = static_cast<VkFormat>(swapChainSurfaceFormat.format);
-   
+
     VkFormat imguiDepthFormat = static_cast<VkFormat>(depthFormat);
 
     initInfo.PipelineInfoMain.MSAASamples =
@@ -5216,7 +4670,7 @@ void Renderer::buildImGui()
 
         uint32_t totalVertexCount = 0;
         uint32_t totalIndexCount = 0;
-
+/*
         for (const auto& gpuMesh : gpuMeshes)
         {
             if (!gpuMesh)
@@ -5302,8 +4756,8 @@ void Renderer::buildImGui()
         }
 
 
-   //     const Renderable* selectedRenderable =
-   //         scene.empty() ? nullptr : &scene.getRenderables()[uiState.selectedRenderableIndex];
+        //     const Renderable* selectedRenderable =
+        //         scene.empty() ? nullptr : &scene.getRenderables()[uiState.selectedRenderableIndex];
 
         Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
@@ -5317,12 +4771,12 @@ void Renderer::buildImGui()
 
         const Texture2D* metallicRoughnessTexture =
             selectedMaterial ? selectedMaterial->getMetallicRoughnessTexture() : nullptr;
-     
 
-     //   Material* selectedMaterial = getSelectedRenderableMaterial();
+
+        //   Material* selectedMaterial = getSelectedRenderableMaterial();
         int selectedMaterialIndex = selectedMaterial ? getMaterialIndex(*selectedMaterial) : -1;
         const Texture2D* selectedTexture = selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
-     
+
 
         EditorPanels::drawAssetInspectionPanel(
             scene,
@@ -5349,30 +4803,32 @@ void Renderer::buildImGui()
 
 
         void drawVerificationPanel(
-            const Scene& scene,
-            const EditorUiState& uiState,
-            const std::string& currentModelPath,
-            const Renderable* selectedRenderable,
-            const Material* selectedMaterial,
-            const Texture2D* baseColorTexture,
-            const Texture2D* normalTexture,
-            const Texture2D* metallicRoughnessTexture,
-            const glm::vec3& lightDirection,
-            const glm::vec3& lightColor,
-            const glm::vec3& ambientColor);
+            const Scene & scene,
+            const EditorUiState & uiState,
+            const std::string & currentModelPath,
+            const Renderable * selectedRenderable,
+            const Material * selectedMaterial,
+            const Texture2D * baseColorTexture,
+            const Texture2D * normalTexture,
+            const Texture2D * metallicRoughnessTexture,
+            const glm::vec3 & lightDirection,
+            const glm::vec3 & lightColor,
+            const glm::vec3 & ambientColor);
 
         EditorPanels::drawSelectedMaterialPanel(
             selectedRenderable,
             selectedMaterial,
             selectedTexture,
             selectedMaterialIndex);
-        
-        
+
+
+        */ 
+
         EditorPanels::drawDebugPanel(
             uiState,
             isWireframeSupported());
 
-        
+       
 
         ImGui::End();
     }

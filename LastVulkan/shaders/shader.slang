@@ -187,7 +187,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     tangentNormal.xy *= normalScale;
     tangentNormal = normalize(tangentNormal);
 
-   float3 T = normalize(input.fragTangent);
+    float3 T = normalize(input.fragTangent);
     float3 B = normalize(input.fragBitangent);
     float3 Ng = normalize(input.fragNormal);
 
@@ -203,7 +203,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 
     float3 mrSample = metallicRoughnessTexture.Sample(input.fragTexCoord).rgb;
 
-    float roughness = saturate(pc.materialParams.y * mrSample.g);
+    float roughness = clamp(pc.materialParams.y * mrSample.g, 0.04, 1.0);
     float metallic = saturate(pc.materialParams.x * mrSample.b);
 
     float3 V = normalize(ubo.cameraPosition.xyz - input.worldPos);
@@ -255,7 +255,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     float3 F = FresnelSchlick(HdotV, F0);
 
     float3 numerator = D * G * F;
-    float denominator = max(4.0 * NdotV * NdotL, 0.000001);
+    float denominator = max(4.0 * NdotV * NdotL, 0.001);
     float3 specularDirect = numerator / denominator;
 
     float3 kdDirect = (1.0 - F) * (1.0 - metallic);
@@ -266,7 +266,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         ubo.lightColor.rgb *
         NdotL;
 
-    directLighting += baseColor.rgb * ubo.ambientColor.rgb * 0.15;
+  //  directLighting += baseColor.rgb * ubo.ambientColor.rgb * 0.15;
 
     // -------------------------
     // IBL
@@ -307,7 +307,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         specularIBL = prefiltered * (Fibl * brdf.x + brdf.y);
     }
 
-    float3 color = directLighting * 0.2;
+    float3 color = directLighting;
 
     if (enableIBL)
     {
@@ -333,4 +333,6 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 
     float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
     return float4(color, outputAlpha);
+
+    
 }
