@@ -33,6 +33,7 @@ import vulkan_hpp;
 #include "EnvironmentResources.hpp"
 #include "EnvironmentUtils.hpp"
 #include "BrdfLutRenderer.hpp"
+#include "EnvironmentRenderer.hpp"
 
 
 
@@ -169,6 +170,7 @@ private:
     
     EnvironmentResources environment;
     std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
+    std::unique_ptr<EnvironmentRenderer> environmentRenderer;
 
 
     float rotationSpeed = 90.0f;
@@ -389,23 +391,16 @@ private:
 
     uint32_t runtimeEnvironmentCubeSize = 512;
 
-    void createRuntimeEnvironmentCubemapResources();
+    
 
    
 
-    void createRuntimeEnvironmentCubemapFaceViews();
-
-    vk::raii::DescriptorSetLayout equirectToCubeDescriptorSetLayout{ nullptr };
-    vk::raii::DescriptorPool equirectToCubeDescriptorPool{ nullptr };
-    vk::raii::DescriptorSet equirectToCubeDescriptorSet{ nullptr };
-
-    vk::raii::PipelineLayout equirectToCubePipelineLayout{ nullptr };
-    vk::raii::Pipeline equirectToCubePipeline{ nullptr };
-
-    void createEquirectToCubeDescriptorResources();
-    void updateEquirectToCubeDescriptorSet();
-    void createEquirectToCubePipeline();
-    void renderEquirectToCubemap();
+    
+    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
+    glm::mat4 getCubemapCaptureProjection() const;
+    
+    
+    
 
     
 
@@ -453,8 +448,7 @@ private:
 
 
 
-    std::array<glm::mat4, 6> getCubemapCaptureViews() const;
-    glm::mat4 getCubemapCaptureProjection() const;
+
 
     vk::DescriptorImageInfo makeImageInfo(
         vk::Sampler sampler,

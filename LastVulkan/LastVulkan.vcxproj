@@ -90,6 +90,7 @@
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="DdsUtils.cpp" />
     <ClCompile Include="EditorPanels.cpp" />
+    <ClCompile Include="EnvironmentRenderer.cpp" />
     <ClCompile Include="EnvironmentUtils.cpp" />
     <ClCompile Include="GltfLoader.cpp" />
     <ClCompile Include="GpuMesh.cpp" />
@@ -119,6 +120,7 @@
     <ClInclude Include="DdsUtils.hpp" />
     <ClInclude Include="EditorPanels.hpp" />
     <ClInclude Include="EditorUiState.hpp" />
+    <ClInclude Include="EnvironmentRenderer.hpp" />
     <ClInclude Include="EnvironmentResources.hpp" />
     <ClInclude Include="EnvironmentUtils.hpp" />
     <ClInclude Include="GltfLoader.hpp" />
