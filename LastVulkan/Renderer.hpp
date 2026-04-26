@@ -180,8 +180,8 @@ private:
 
 
     float cameraRadius = 3.0f;
-    float cameraYaw = 0.0f;
-    float cameraPitch = 0.5f;
+    float cameraYaw = glm::radians(270.0f);
+    float cameraPitch = glm::radians(85.0f); // or slightly less, e.g. 75–80
     float cameraFov = 45.0f;
     float cameraNear = 0.1f;
     float cameraFar = 10.0f;
@@ -198,8 +198,15 @@ private:
     glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
     glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
-    glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
-    glm::vec3 ambientColor = glm::vec3(0.15f, 0.15f, 0.15f);
+
+    UniformBufferObject lastUbo;
+    
+
+    glm::vec3 lightColor{ 1.0f };
+    float lightIntensity = 3.0f;
+
+    glm::vec3 ambientColor{ 1.0f };
+    float ambientIntensity = 0.0f;
 
     float frameTimeMs = 0.0f;
     float fps = 0.0f;

@@ -25,6 +25,8 @@ public:
 
     void setOrbit(float radius, float yaw, float pitch);
 
+    void frameBounds(const glm::vec3& minBounds, const glm::vec3& maxBounds);
+
 private:
     glm::vec3 position{ 2.0f, 2.0f, 2.0f };
     glm::vec3 target{ 0.0f, 0.0f, 0.0f };

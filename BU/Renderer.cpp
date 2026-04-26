@@ -1,26 +1,32 @@
-#include "Renderer.hpp"
+ï»¿#include "Renderer.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <cassert>
 
 #include <cstring>
+#include <iostream>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <cstdio>
+#include <array>
+
 
 #include <stb_image.h>
 
 #include "EditorPanels.hpp"
 #include "GltfLoader.hpp"
+#include "DdsUtils.hpp"
 
 
 
-#include <glm/gtc/matrix_transform.hpp>
+
 #include <chrono>
 
 
@@ -38,11 +44,63 @@ Renderer::~Renderer()
 {
     shutdownImGui();
     vkContext.getDevice().waitIdle();
+
+    environment.runtimeBrdfLut.pipeline = nullptr;
+    environment.runtimeBrdfLut.layout = nullptr;
+
+    environment.runtimeBrdfLut.sampler = nullptr;
+    environment.runtimeBrdfLut.view = nullptr;
+    environment.runtimeBrdfLut.memory = nullptr;
+    environment.runtimeBrdfLut.image = nullptr;
+
+    for (auto& view : environment.runtimeEnvironmentCubeFaces.views)
+    {
+        view = nullptr;
+    }
+
+    environment.runtimeEnvironmentCube.sampler = nullptr;
+    environment.runtimeEnvironmentCube.view = nullptr;
+    environment.runtimeEnvironmentCube.memory = nullptr;
+    environment.runtimeEnvironmentCube.image = nullptr;
+
+    for (auto& mipViews : environment.runtimePrefilteredCubeMipFaceViews)
+    {
+        for (auto& view : mipViews.views)
+        {
+            view = nullptr;
+        }
+    }
+
+    environment.runtimePrefilteredCubeMipFaceViews.clear();
+
+    environment.runtimePrefilteredCube.sampler = nullptr;
+    environment.runtimePrefilteredCube.view = nullptr;
+    environment.runtimePrefilteredCube.memory = nullptr;
+    environment.runtimePrefilteredCube.image = nullptr;
+
+   
+
+    hdrEnvironmentSampler = nullptr;
+    hdrEnvironmentView = nullptr;
+    hdrEnvironmentMemory = nullptr;
+    hdrEnvironmentImage = nullptr;
+
+    for (auto& view : environment.runtimeIrradianceCubeFaces.views)
+    {
+        view = nullptr;
+    }
+
+    environment.runtimeIrradianceCube.sampler = nullptr;
+    environment.runtimeIrradianceCube.view = nullptr;
+    environment.runtimeIrradianceCube.memory = nullptr;
+    environment.runtimeIrradianceCube.image = nullptr;
+
     cleanupDescriptorResources();
 }
 
 void Renderer::init()
 {
+
     createSwapChain();
     createImageViews();
     createDescriptorSetLayout();
@@ -92,7 +150,7 @@ void Renderer::init()
         "Default MetallicRoughness",
         vk::Format::eR8G8B8A8Unorm);
 
-    
+
 
     // Slot 0 = default fallback texture
     textures.push_back(std::make_unique<Texture2D>(
@@ -107,15 +165,17 @@ void Renderer::init()
     camera.setFov(cameraFov);
     camera.setNearFar(cameraNear, cameraFar);
 
-    currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
+ //   currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
+
+	currentModelPath = "models/Suzanne/glTF/Suzanne.gltf";
     std::cout << "Loading model: " << currentModelPath << std::endl;
 
     GltfLoader loader;
     GltfSceneData imported = loader.load(currentModelPath);
 
-       
 
-    
+
+
 
     if (textures.empty())
     {
@@ -201,7 +261,7 @@ void Renderer::init()
 
         gltfImageToMRTextureIndex[i] = static_cast<int>(metallicRoughnessTextures.size()) - 1;
     }
-    
+
     std::vector<int> gltfImageToTextureIndex(imported.images.size(), -1);
 
     for (size_t i = 0; i < imported.images.size(); ++i)
@@ -234,7 +294,7 @@ void Renderer::init()
 
         gltfImageToTextureIndex[i] = static_cast<int>(textures.size()) - 1;
 
-        
+
 
 
     }
@@ -311,21 +371,7 @@ void Renderer::init()
         throw std::runtime_error("glTF import produced no renderables");
     }
 
-    std::cout << "Imported glTF renderables: "
-        << imported.renderables.size()
-        << std::endl;
 
-    std::cout << "Imported glTF images: "
-        << imported.images.size()
-        << std::endl;
-
-    std::cout << "Imported engine textures: "
-        << textures.size()
-        << std::endl;
-
-    std::cout << "Imported engine materials: "
-        << materials.size()
-        << std::endl;
 
     for (size_t i = 0; i < imported.renderables.size(); ++i)
     {
@@ -357,6 +403,8 @@ void Renderer::init()
 
     uiState.selectedRenderableIndex = scene.empty() ? -1 : 0;
 
+    resetEnvironmentSettings();
+
     createUniformBuffers();
     createDescriptorPool();
     createDescriptorSets();
@@ -364,25 +412,60 @@ void Renderer::init()
 
     createFallbackIBLResources();
 
+    createIrradianceCubemapFromDDS("assets/ibl/output_iem.dds");
+    createPrefilteredCubemapFromDDS("assets/ibl/output_pmrem.dds");
+
+    brdfLutTexture = std::make_unique<Texture2D>(
+        vkContext,
+        bufferUtils,
+        imageUtils,
+        "assets/ibl/brdf_lut.png"
+    );
+
     createEnvironmentCubemap({
     "assets/skybox/right.jpg",
     "assets/skybox/left.jpg",
     "assets/skybox/top.jpg",
     "assets/skybox/bottom.jpg",
     "assets/skybox/front.jpg",
-    "assets/skybox/back.jpg"
-    
-    
-        });
+    "assets/skybox/back.jpg" });
 
+    createHdrEnvironmentTexture("assets/hdr/studio.hdr");
+    
+    environmentRenderer = std::make_unique<EnvironmentRenderer>(vkContext, bufferUtils);
+    environmentRenderer->init(
+        environment,
+        hdrEnvironmentSampler,
+        hdrEnvironmentView);
+    
+
+    
+    brdfLutRenderer = std::make_unique<BrdfLutRenderer>(vkContext, bufferUtils);
+    brdfLutRenderer->init(environment);
+
+    
+    irradianceRenderer = std::make_unique<IrradianceRenderer>(vkContext, bufferUtils);
+    irradianceRenderer->init(environment);
+    
+    prefilterRenderer = std::make_unique<PrefilterRenderer>(vkContext, bufferUtils);
+    prefilterRenderer->init(environment);
+       
+
+    
+    
+
+    
 
     updateIBLDescriptorSet();
-       
+
     createSkyboxPipeline();
-     
+
     createCommandBuffers();
     createSyncObjects();
     initImGui();
+
+
+
 }
 
 void Renderer::cleanupSwapChain()
@@ -391,6 +474,9 @@ void Renderer::cleanupSwapChain()
     solidDoubleSidedPipeline = nullptr;
     wireframePipeline = nullptr;
     wireframeDoubleSidedPipeline = nullptr;
+    transparentPipeline = nullptr;
+    transparentDoubleSidedPipeline = nullptr;
+
     pipelineLayout = nullptr;
 
     skyboxPipeline = nullptr;
@@ -685,6 +771,16 @@ void Renderer::createGraphicsPipeline()
         .setDepthBoundsTestEnable(VK_FALSE)
         .setStencilTestEnable(VK_FALSE);
 
+    vk::PipelineDepthStencilStateCreateInfo transparentDepthStencil{};
+    transparentDepthStencil
+        .setDepthTestEnable(VK_TRUE)
+        .setDepthWriteEnable(VK_FALSE)
+        .setDepthCompareOp(vk::CompareOp::eLess)
+        .setDepthBoundsTestEnable(VK_FALSE)
+        .setStencilTestEnable(VK_FALSE);
+
+
+
     vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment
         .setBlendEnable(VK_FALSE)
@@ -700,6 +796,28 @@ void Renderer::createGraphicsPipeline()
         .setLogicOpEnable(VK_FALSE)
         .setLogicOp(vk::LogicOp::eCopy)
         .setAttachments(colorBlendAttachment);
+
+    vk::PipelineColorBlendAttachmentState transparentBlendAttachment{};
+    transparentBlendAttachment
+        .setBlendEnable(VK_TRUE)
+        .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+        .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+        .setColorBlendOp(vk::BlendOp::eAdd)
+        .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+        .setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+        .setAlphaBlendOp(vk::BlendOp::eAdd)
+        .setColorWriteMask(
+            vk::ColorComponentFlagBits::eR |
+            vk::ColorComponentFlagBits::eG |
+            vk::ColorComponentFlagBits::eB |
+            vk::ColorComponentFlagBits::eA
+        );
+
+    vk::PipelineColorBlendStateCreateInfo transparentColorBlending{};
+    transparentColorBlending
+        .setLogicOpEnable(VK_FALSE)
+        .setLogicOp(vk::LogicOp::eCopy)
+        .setAttachments(transparentBlendAttachment);
 
     std::vector<vk::DynamicState> dynamicStates = {
         vk::DynamicState::eViewport,
@@ -756,10 +874,18 @@ void Renderer::createGraphicsPipeline()
         .setColorAttachmentFormats(swapChainSurfaceFormat.format)
         .setDepthAttachmentFormat(depthFormat);
 
+    // -------------------------
+    // Opaque pipelines
+    // -------------------------
+
     // Filled, culled
     rasterizer
         .setPolygonMode(vk::PolygonMode::eFill)
         .setCullMode(vk::CullModeFlagBits::eBack);
+
+    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        .setPDepthStencilState(&depthStencil)
+        .setPColorBlendState(&colorBlending);
 
     solidPipeline = vk::raii::Pipeline(
         device,
@@ -778,12 +904,49 @@ void Renderer::createGraphicsPipeline()
         pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
     );
 
-    // Wireframe variants
+    // -------------------------
+    // Transparent pipelines
+    // -------------------------
+
+    // Transparent, culled
+    rasterizer
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eBack);
+
+    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+        .setPDepthStencilState(&transparentDepthStencil)
+        .setPColorBlendState(&transparentColorBlending);
+
+    transparentPipeline = vk::raii::Pipeline(
+        device,
+        nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
+
+    // Transparent, double-sided
+    rasterizer
+        .setPolygonMode(vk::PolygonMode::eFill)
+        .setCullMode(vk::CullModeFlagBits::eNone);
+
+    transparentDoubleSidedPipeline = vk::raii::Pipeline(
+        device,
+        nullptr,
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+    );
+
+    // -------------------------
+    // Wireframe opaque pipelines
+    // -------------------------
+
     wireframePipeline = nullptr;
     wireframeDoubleSidedPipeline = nullptr;
 
     if (vkContext.isFillModeNonSolidEnabled())
     {
+        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
+            .setPDepthStencilState(&depthStencil)
+            .setPColorBlendState(&colorBlending);
+
         // Wireframe, culled
         rasterizer
             .setPolygonMode(vk::PolygonMode::eLine)
@@ -852,7 +1015,7 @@ void Renderer::createDepthResources()
     );
 }
 
-    
+
 
 
 vk::Format Renderer::findSupportedFormat(const std::vector<vk::Format>& candidates,
@@ -909,7 +1072,7 @@ void Renderer::createCommandBuffers()
 void Renderer::loadModel()
 {
     std::cout << "Loading model: " << MODEL_PATH << std::endl;
-    
+
     meshData = modelLoader.load(MODEL_PATH);
 
     if (meshData.empty())
@@ -992,7 +1155,7 @@ void Renderer::createDescriptorSets()
     auto& device = vkContext.getDevice();
 
     // =========================
-    // Set 0 — Frame UBO sets
+    // Set 0 Â— Frame UBO sets
     // =========================
 
     std::vector<vk::DescriptorSetLayout> layouts(
@@ -1027,7 +1190,7 @@ void Renderer::createDescriptorSets()
     }
 
     // =========================
-    // Set 2 — IBL descriptor set
+    // Set 2 Â— IBL descriptor set
     // =========================
 
     vk::DescriptorSetAllocateInfo iblAllocInfo{};
@@ -1102,8 +1265,10 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     ubo.invProj = glm::inverse(ubo.proj);
 
     ubo.lightDirection = glm::vec4(glm::normalize(lightDirection), 0.0f);
-    ubo.lightColor = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f);
-    ubo.ambientColor = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+    
+    ubo.lightColor = glm::vec4(lightColor * lightIntensity, 1.0f);
+    ubo.ambientColor = glm::vec4(ambientColor * ambientIntensity, 1.0f);
+
     ubo.cameraPosition = glm::vec4(camera.getPosition(), 1.0f);
 
     ubo.environmentParams0 = glm::vec4(
@@ -1120,14 +1285,28 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         enableIBL ? 1.0f : 0.0f
     );
 
-    
-    
+    ubo.postProcessParams = glm::vec4(
+        postExposure,
+        toneMappingEnabled ? 1.0f : 0.0f,
+        gammaEnabled ? 1.0f : 0.0f,
+        glm::radians(environmentRotationDegrees)
+    );
+
+    ubo.environmentControlParams = glm::vec4(
+        rotateSkybox ? 1.0f : 0.0f,
+        rotateIBLLighting ? 1.0f : 0.0f,
+        0.0f,
+        0.0f
+    );
+
+
+
 
     std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 
-    
 
-    };
+
+};
 
 void Renderer::createMaterialDescriptorSets()
 {
@@ -1391,19 +1570,18 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     // Draw skybox first
     drawSkybox(commandBuffer, imageIndex);
 
+    // -------------------------
+    // Pass 1: OPAQUE + MASK
+    // -------------------------
     for (auto& renderable : scene.getRenderables())
     {
-        commandBuffer.bindVertexBuffers(
-            0,
-            *renderable.getMesh().getVertexBuffer(),
-            { 0 });
-
-        commandBuffer.bindIndexBuffer(
-            *renderable.getMesh().getIndexBuffer(),
-            0,
-            vk::IndexType::eUint32);
-
         Material& renderableMaterial = renderable.getMaterial();
+
+        const bool isBlendMaterial = (renderableMaterial.getAlphaMode() == "BLEND");
+        if (isBlendMaterial)
+        {
+            continue;
+        }
 
         auto materialIt = std::find_if(
             materials.begin(),
@@ -1419,6 +1597,16 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         }
 
         size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+
+        commandBuffer.bindVertexBuffers(
+            0,
+            *renderable.getMesh().getVertexBuffer(),
+            { 0 });
+
+        commandBuffer.bindIndexBuffer(
+            *renderable.getMesh().getIndexBuffer(),
+            0,
+            vk::IndexType::eUint32);
 
         vk::Pipeline activePipeline = *solidPipeline;
 
@@ -1463,10 +1651,6 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             vk::PipelineBindPoint::eGraphics,
             activePipeline);
 
-        // Main scene pipeline layout:
-        // set 0 = frame UBO
-        // set 1 = material textures
-        // set 2 = IBL textures
         std::array<vk::DescriptorSet, 3> sets = {
             *frameDescriptorSets[frameIndex],
             *materialDescriptorSets[materialIndex],
@@ -1488,10 +1672,19 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
         pushData.normalMatrix = normalMatrix;
         pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
+
+        const bool isMaskMaterial = (renderableMaterial.getAlphaMode() == "MASK");
+
         pushData.materialParams = glm::vec4(
             renderableMaterial.getMetallicFactor(),
             renderableMaterial.getRoughnessFactor(),
             renderableMaterial.getNormalScale(),
+            renderableMaterial.getAlphaCutoff());
+
+        pushData.alphaModeParams = glm::vec4(
+            isMaskMaterial ? 1.0f : 0.0f,
+            0.0f, // isBlend = false in opaque/mask pass
+            0.0f,
             0.0f);
 
         if (animateModel)
@@ -1517,6 +1710,135 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             0);
     }
 
+    // -------------------------
+    // Pass 2: BLEND
+    // -------------------------
+    std::vector<Renderable*> transparentRenderables;
+    transparentRenderables.reserve(scene.getRenderables().size());
+
+    for (auto& renderable : scene.getRenderables())
+    {
+        if (renderable.getMaterial().getAlphaMode() == "BLEND")
+        {
+            transparentRenderables.push_back(&renderable);
+        }
+    }
+
+    // Back-to-front sort for transparent objects
+    const glm::vec3 cameraPos = camera.getPosition();
+
+    std::sort(
+        transparentRenderables.begin(),
+        transparentRenderables.end(),
+        [&](const Renderable* a, const Renderable* b)
+        {
+            glm::vec3 aPos = glm::vec3(a->getTransform().toMatrix()[3]);
+            glm::vec3 bPos = glm::vec3(b->getTransform().toMatrix()[3]);
+
+            float da = glm::dot(aPos - cameraPos, aPos - cameraPos);
+            float db = glm::dot(bPos - cameraPos, bPos - cameraPos);
+
+            return da > db; // back-to-front
+        });
+
+    for (Renderable* renderable : transparentRenderables)
+    {
+        Material& renderableMaterial = renderable->getMaterial();
+
+        auto materialIt = std::find_if(
+            materials.begin(),
+            materials.end(),
+            [&](const std::unique_ptr<Material>& candidate)
+            {
+                return candidate.get() == &renderableMaterial;
+            });
+
+        if (materialIt == materials.end())
+        {
+            throw std::runtime_error("renderable material not found in renderer materials");
+        }
+
+        size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+
+        commandBuffer.bindVertexBuffers(
+            0,
+            *renderable->getMesh().getVertexBuffer(),
+            { 0 });
+
+        commandBuffer.bindIndexBuffer(
+            *renderable->getMesh().getIndexBuffer(),
+            0,
+            vk::IndexType::eUint32);
+
+        vk::Pipeline activePipeline =
+            renderableMaterial.isDoubleSided()
+            ? *transparentDoubleSidedPipeline
+            : *transparentPipeline;
+
+        commandBuffer.bindPipeline(
+            vk::PipelineBindPoint::eGraphics,
+            activePipeline);
+
+        std::array<vk::DescriptorSet, 3> sets = {
+            *frameDescriptorSets[frameIndex],
+            *materialDescriptorSets[materialIndex],
+            *iblDescriptorSet
+        };
+
+        commandBuffer.bindDescriptorSets(
+            vk::PipelineBindPoint::eGraphics,
+            *pipelineLayout,
+            0,
+            sets,
+            {});
+
+        PushConstantData pushData{};
+        pushData.model = renderable->getTransform().toMatrix();
+
+        glm::mat3 normalMatrix =
+            glm::transpose(glm::inverse(glm::mat3(pushData.model)));
+
+        pushData.normalMatrix = normalMatrix;
+        pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
+
+        pushData.materialParams = glm::vec4(
+            renderableMaterial.getMetallicFactor(),
+            renderableMaterial.getRoughnessFactor(),
+            renderableMaterial.getNormalScale(),
+            renderableMaterial.getAlphaCutoff());
+
+        const bool isMaskMaterial = (renderableMaterial.getAlphaMode() == "MASK");
+        const bool isBlendMaterial = (renderableMaterial.getAlphaMode() == "BLEND");
+
+        pushData.alphaModeParams = glm::vec4(
+            isMaskMaterial ? 1.0f : 0.0f,
+            isBlendMaterial ? 1.0f : 0.0f,
+            0.0f,
+            0.0f);
+
+        if (animateModel)
+        {
+            pushData.model = glm::rotate(
+                pushData.model,
+                currentAnimationAngle,
+                glm::vec3(0.0f, 0.0f, 1.0f));
+        }
+
+        cmd.pushConstants(
+            *pipelineLayout,
+            vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+            0,
+            sizeof(PushConstantData),
+            &pushData);
+
+        commandBuffer.drawIndexed(
+            renderable->getMesh().getIndexCount(),
+            1,
+            0,
+            0,
+            0);
+    }
+
     renderImGui(*commandBuffer);
 
     commandBuffer.endRendering();
@@ -1528,6 +1850,239 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     swapChainImageInitialized[imageIndex] = true;
 
     commandBuffer.end();
+}
+
+void Renderer::createIrradianceCubemapFromDDS(const std::string& path)
+{
+    createCubemapFromDDS(
+        path,
+        irradianceCubeImage,
+        irradianceCubeMemory,
+        irradianceCubeView,
+        irradianceCubeSampler,
+        false
+    );
+}
+
+void Renderer::createPrefilteredCubemapFromDDS(const std::string& path)
+{
+    createCubemapFromDDS(
+        path,
+        prefilteredCubeImage,
+        prefilteredCubeMemory,
+        prefilteredCubeView,
+        prefilteredCubeSampler,
+        true
+    );
+}
+
+void Renderer::createCubemapFromDDS(
+    const std::string& path,
+    vk::raii::Image& outImage,
+    vk::raii::DeviceMemory& outMemory,
+    vk::raii::ImageView& outView,
+    vk::raii::Sampler& outSampler,
+    bool allowMipSampling)
+{
+    DdsCubemapData dds = DdsUtils::loadCubemapDDS(path);
+
+    struct PackedRegion
+    {
+        vk::BufferImageCopy copyRegion{};
+        size_t size = 0;
+        const std::vector<uint8_t>* pixels = nullptr;
+    };
+
+    std::vector<PackedRegion> packedRegions;
+    packedRegions.reserve(dds.subresources.size());
+
+    vk::DeviceSize totalUploadSize = 0;
+
+    for (const auto& sub : dds.subresources)
+    {
+        PackedRegion region{};
+        region.size = sub.slicePitch;
+        region.pixels = &sub.pixels;
+
+        region.copyRegion
+            .setBufferOffset(totalUploadSize)
+            .setBufferRowLength(0)
+            .setBufferImageHeight(0)
+            .setImageSubresource(
+                vk::ImageSubresourceLayers{}
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setMipLevel(sub.mipLevel)
+                .setBaseArrayLayer(sub.arrayLayer)
+                .setLayerCount(1))
+            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+            .setImageExtent(vk::Extent3D{ sub.width, sub.height, 1 });
+
+        packedRegions.push_back(region);
+        totalUploadSize += static_cast<vk::DeviceSize>(sub.slicePitch);
+    }
+
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
+
+    bufferUtils.createBuffer(
+        totalUploadSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory
+    );
+
+    {
+        void* mapped = stagingMemory.mapMemory(0, totalUploadSize);
+        uint8_t* dst = static_cast<uint8_t*>(mapped);
+
+        vk::DeviceSize currentOffset = 0;
+        for (const auto& region : packedRegions)
+        {
+            std::memcpy(dst + currentOffset, region.pixels->data(), region.size);
+            currentOffset += static_cast<vk::DeviceSize>(region.size);
+        }
+
+        stagingMemory.unmapMemory();
+    }
+
+    auto& device = vkContext.getDevice();
+
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(dds.format)
+        .setExtent(vk::Extent3D{ dds.width, dds.height, 1 })
+        .setMipLevels(dds.mipLevels)
+        .setArrayLayers(6)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(
+            vk::ImageUsageFlagBits::eTransferDst |
+            vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
+
+    outImage = vk::raii::Image(device, imageInfo);
+
+    vk::MemoryRequirements memRequirements = outImage.getMemoryRequirements();
+
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memRequirements.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memRequirements.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal));
+
+    outMemory = vk::raii::DeviceMemory(device, allocInfo);
+    outImage.bindMemory(*outMemory, 0);
+
+    auto cmd = bufferUtils.beginSingleTimeCommands();
+
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*outImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(dds.mipLevels)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer
+    );
+
+    std::vector<vk::BufferImageCopy> copyRegions;
+    copyRegions.reserve(packedRegions.size());
+
+    for (const auto& region : packedRegions)
+    {
+        copyRegions.push_back(region.copyRegion);
+    }
+
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *outImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegions
+    );
+
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*outImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(dds.mipLevels)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead
+    );
+
+    bufferUtils.endSingleTimeCommands(cmd);
+
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*outImage)
+        .setViewType(vk::ImageViewType::eCube)
+        .setFormat(dds.format)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(dds.mipLevels)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6));
+
+    outView = vk::raii::ImageView(device, viewInfo);
+
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setMipLodBias(0.0f)
+        .setAnisotropyEnable(VK_FALSE)
+        .setCompareEnable(VK_FALSE)
+        .setMinLod(0.0f)
+        .setMaxLod(allowMipSampling ? static_cast<float>(dds.mipLevels - 1) : 0.0f)
+        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+        .setUnnormalizedCoordinates(VK_FALSE);
+
+    outSampler = vk::raii::Sampler(device, samplerInfo);
 }
 
 
@@ -1620,7 +2175,7 @@ void Renderer::transitionToDepthAttachment(
 }
 
 
- void Renderer::resetDefaultSceneLayout()
+void Renderer::resetDefaultSceneLayout()
 {
     auto& renderables = scene.getRenderables();
 
@@ -1658,226 +2213,226 @@ void Renderer::transitionToDepthAttachment(
 }
 
 
- void Renderer::    (const std::array<std::string, 6>& facePaths)
- {
-     auto& device = vkContext.getDevice();
+void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePaths)
+{
+    auto& device = vkContext.getDevice();
 
-     int texWidth = 0;
-     int texHeight = 0;
-     int texChannels = 0;
+    int texWidth = 0;
+    int texHeight = 0;
+    int texChannels = 0;
 
-     std::vector<stbi_uc*> facePixels(6, nullptr);
+    std::vector<stbi_uc*> facePixels(6, nullptr);
 
-     for (size_t i = 0; i < 6; ++i)
-     {
-         int w = 0, h = 0, c = 0;
-         facePixels[i] = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
-         if (!facePixels[i])
-         {
-             throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
-         }
+    for (size_t i = 0; i < 6; ++i)
+    {
+        int w = 0, h = 0, c = 0;
+        facePixels[i] = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
+        if (!facePixels[i])
+        {
+            throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
+        }
 
-         if (i == 0)
-         {
-             texWidth = w;
-             texHeight = h;
-             texChannels = 4;
-         }
-         else
-         {
-             if (w != texWidth || h != texHeight)
-             {
-                 throw std::runtime_error("Cubemap faces must all have the same dimensions");
-             }
-         }
-     }
+        if (i == 0)
+        {
+            texWidth = w;
+            texHeight = h;
+            texChannels = 4;
+        }
+        else
+        {
+            if (w != texWidth || h != texHeight)
+            {
+                throw std::runtime_error("Cubemap faces must all have the same dimensions");
+            }
+        }
+    }
 
-     const vk::DeviceSize faceSize =
-         static_cast<vk::DeviceSize>(texWidth) *
-         static_cast<vk::DeviceSize>(texHeight) * 4;
+    const vk::DeviceSize faceSize =
+        static_cast<vk::DeviceSize>(texWidth) *
+        static_cast<vk::DeviceSize>(texHeight) * 4;
 
-     const vk::DeviceSize totalSize = faceSize * 6;
+    const vk::DeviceSize totalSize = faceSize * 6;
 
-     vk::raii::Buffer stagingBuffer{ nullptr };
-     vk::raii::DeviceMemory stagingMemory{ nullptr };
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
 
-     bufferUtils.createBuffer(
-         totalSize,
-         vk::BufferUsageFlagBits::eTransferSrc,
-         vk::MemoryPropertyFlagBits::eHostVisible |
-         vk::MemoryPropertyFlagBits::eHostCoherent,
-         stagingBuffer,
-         stagingMemory
-     );
+    bufferUtils.createBuffer(
+        totalSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory
+    );
 
-     void* mapped = stagingMemory.mapMemory(0, totalSize);
-     unsigned char* dst = static_cast<unsigned char*>(mapped);
+    void* mapped = stagingMemory.mapMemory(0, totalSize);
+    unsigned char* dst = static_cast<unsigned char*>(mapped);
 
-     for (size_t i = 0; i < 6; ++i)
-     {
-         std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
-     }
+    for (size_t i = 0; i < 6; ++i)
+    {
+        std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
+    }
 
-     stagingMemory.unmapMemory();
+    stagingMemory.unmapMemory();
 
-     for (auto* pixels : facePixels)
-     {
-         stbi_image_free(pixels);
-     }
+    for (auto* pixels : facePixels)
+    {
+        stbi_image_free(pixels);
+    }
 
-     const vk::Format format = vk::Format::eR8G8B8A8Srgb;
+    const vk::Format format = vk::Format::eR8G8B8A8Srgb;
 
-     vk::ImageCreateInfo imageInfo{};
-     imageInfo
-         .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
-         .setImageType(vk::ImageType::e2D)
-         .setFormat(format)
-         .setExtent(vk::Extent3D{
-             static_cast<uint32_t>(texWidth),
-             static_cast<uint32_t>(texHeight),
-             1
-             })
-         .setMipLevels(1)
-         .setArrayLayers(6)
-         .setSamples(vk::SampleCountFlagBits::e1)
-         .setTiling(vk::ImageTiling::eOptimal)
-         .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
-         .setSharingMode(vk::SharingMode::eExclusive)
-         .setInitialLayout(vk::ImageLayout::eUndefined);
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(format)
+        .setExtent(vk::Extent3D{
+            static_cast<uint32_t>(texWidth),
+            static_cast<uint32_t>(texHeight),
+            1
+            })
+        .setMipLevels(1)
+        .setArrayLayers(6)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
 
-     environmentCubeImage = vk::raii::Image(device, imageInfo);
+    environmentCubeImage = vk::raii::Image(device, imageInfo);
 
-     vk::MemoryRequirements memReq = environmentCubeImage.getMemoryRequirements();
+    vk::MemoryRequirements memReq = environmentCubeImage.getMemoryRequirements();
 
-     vk::MemoryAllocateInfo allocInfo{};
-     allocInfo
-         .setAllocationSize(memReq.size)
-         .setMemoryTypeIndex(
-             bufferUtils.findMemoryType(
-                 memReq.memoryTypeBits,
-                 vk::MemoryPropertyFlagBits::eDeviceLocal
-             )
-         );
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memReq.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memReq.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            )
+        );
 
-     environmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
-     environmentCubeImage.bindMemory(*environmentCubeMemory, 0);
+    environmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
+    environmentCubeImage.bindMemory(*environmentCubeMemory, 0);
 
-     auto cmd = bufferUtils.beginSingleTimeCommands();
+    auto cmd = bufferUtils.beginSingleTimeCommands();
 
-     vk::ImageMemoryBarrier toTransfer{};
-     toTransfer
-         .setOldLayout(vk::ImageLayout::eUndefined)
-         .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setImage(*environmentCubeImage)
-         .setSubresourceRange(
-             vk::ImageSubresourceRange{}
-             .setAspectMask(vk::ImageAspectFlagBits::eColor)
-             .setBaseMipLevel(0)
-             .setLevelCount(1)
-             .setBaseArrayLayer(0)
-             .setLayerCount(6))
-         .setSrcAccessMask({})
-         .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*environmentCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
 
-     cmd.pipelineBarrier(
-         vk::PipelineStageFlagBits::eTopOfPipe,
-         vk::PipelineStageFlagBits::eTransfer,
-         {},
-         nullptr,
-         nullptr,
-         toTransfer
-     );
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer
+    );
 
-     std::array<vk::BufferImageCopy, 6> copyRegions{};
-     for (uint32_t face = 0; face < 6; ++face)
-     {
-         copyRegions[face]
-             .setBufferOffset(face * faceSize)
-             .setBufferRowLength(0)
-             .setBufferImageHeight(0)
-             .setImageSubresource(
-                 vk::ImageSubresourceLayers{}
-                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                 .setMipLevel(0)
-                 .setBaseArrayLayer(face)
-                 .setLayerCount(1))
-             .setImageOffset(vk::Offset3D{ 0, 0, 0 })
-             .setImageExtent(vk::Extent3D{
-                 static_cast<uint32_t>(texWidth),
-                 static_cast<uint32_t>(texHeight),
-                 1
-                 });
-     }
+    std::array<vk::BufferImageCopy, 6> copyRegions{};
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        copyRegions[face]
+            .setBufferOffset(face * faceSize)
+            .setBufferRowLength(0)
+            .setBufferImageHeight(0)
+            .setImageSubresource(
+                vk::ImageSubresourceLayers{}
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setMipLevel(0)
+                .setBaseArrayLayer(face)
+                .setLayerCount(1))
+            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+            .setImageExtent(vk::Extent3D{
+                static_cast<uint32_t>(texWidth),
+                static_cast<uint32_t>(texHeight),
+                1
+                });
+    }
 
-     cmd.copyBufferToImage(
-         *stagingBuffer,
-         *environmentCubeImage,
-         vk::ImageLayout::eTransferDstOptimal,
-         copyRegions
-     );
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *environmentCubeImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegions
+    );
 
-     vk::ImageMemoryBarrier toShaderRead{};
-     toShaderRead
-         .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-         .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-         .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-         .setImage(*environmentCubeImage)
-         .setSubresourceRange(
-             vk::ImageSubresourceRange{}
-             .setAspectMask(vk::ImageAspectFlagBits::eColor)
-             .setBaseMipLevel(0)
-             .setLevelCount(1)
-             .setBaseArrayLayer(0)
-             .setLayerCount(6))
-         .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-         .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*environmentCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
 
-     cmd.pipelineBarrier(
-         vk::PipelineStageFlagBits::eTransfer,
-         vk::PipelineStageFlagBits::eFragmentShader,
-         {},
-         nullptr,
-         nullptr,
-         toShaderRead
-     );
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead
+    );
 
-     bufferUtils.endSingleTimeCommands(cmd);
+    bufferUtils.endSingleTimeCommands(cmd);
 
-     vk::ImageViewCreateInfo viewInfo{};
-     viewInfo
-         .setImage(*environmentCubeImage)
-         .setViewType(vk::ImageViewType::eCube)
-         .setFormat(format)
-         .setSubresourceRange(
-             vk::ImageSubresourceRange{}
-             .setAspectMask(vk::ImageAspectFlagBits::eColor)
-             .setBaseMipLevel(0)
-             .setLevelCount(1)
-             .setBaseArrayLayer(0)
-             .setLayerCount(6));
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*environmentCubeImage)
+        .setViewType(vk::ImageViewType::eCube)
+        .setFormat(format)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6));
 
-     environmentCubeView = vk::raii::ImageView(device, viewInfo);
+    environmentCubeView = vk::raii::ImageView(device, viewInfo);
 
-     vk::SamplerCreateInfo samplerInfo{};
-     samplerInfo
-         .setMagFilter(vk::Filter::eLinear)
-         .setMinFilter(vk::Filter::eLinear)
-         .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-         .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-         .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-         .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-         .setAnisotropyEnable(VK_FALSE)
-         .setMaxAnisotropy(1.0f)
-         .setMinLod(0.0f)
-         .setMaxLod(0.0f)
-         .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
-         .setUnnormalizedCoordinates(VK_FALSE);
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setAnisotropyEnable(VK_FALSE)
+        .setMaxAnisotropy(1.0f)
+        .setMinLod(0.0f)
+        .setMaxLod(0.0f)
+        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+        .setUnnormalizedCoordinates(VK_FALSE);
 
-     environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
- }
+    environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
+}
 
 
 void Renderer::cleanupDescriptorResources()
@@ -1938,7 +2493,7 @@ vk::Extent2D Renderer::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabi
         .setCodeSize(code.size())
         .setPCode(reinterpret_cast<const uint32_t*>(code.data()));
 
-    
+
     vk::raii::ShaderModule     shaderModule{ vkContext.getDevice(), createInfo };
 
     return shaderModule;
@@ -2279,54 +2834,58 @@ void Renderer::updateIBLDescriptorSet()
         throw std::runtime_error("updateIBLDescriptorSet: iblDescriptorSet is null");
     }
 
-    if (fallbackBlackCubeView == nullptr || fallbackBlackCubeSampler == nullptr)
+    if (environmentCubeSampler == nullptr || environmentCubeView == nullptr)
     {
-        throw std::runtime_error("updateIBLDescriptorSet: fallback black cube is not initialized");
+        throw std::runtime_error("updateIBLDescriptorSet: fallback environment cubemap is not initialized");
     }
 
-    if (!fallbackBrdfLut ||
-        fallbackBrdfLut->getImageView() == nullptr ||
-        fallbackBrdfLut->getSampler() == nullptr)
+    if (!brdfLutTexture ||
+        brdfLutTexture->getSampler() == nullptr ||
+        brdfLutTexture->getImageView() == nullptr)
     {
-        throw std::runtime_error("updateIBLDescriptorSet: fallback BRDF LUT is not initialized");
-    }
-
-    if (environmentCubeView == nullptr || environmentCubeSampler == nullptr)
-    {
-        throw std::runtime_error("updateIBLDescriptorSet: environment cubemap is not initialized");
+        throw std::runtime_error("updateIBLDescriptorSet: fallback BRDF LUT texture is not initialized");
     }
 
     auto& device = vkContext.getDevice();
 
-    vk::DescriptorImageInfo irradianceInfo{};
-    irradianceInfo
-        .setSampler(*fallbackBlackCubeSampler)
-        .setImageView(*fallbackBlackCubeView)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+    const bool useRuntimeIrradiance =
+        environment.runtimeIrradianceCube.sampler != nullptr &&
+        environment.runtimeIrradianceCube.view != nullptr;
 
-    vk::DescriptorImageInfo prefilteredInfo{};
-    prefilteredInfo
-        .setSampler(*fallbackBlackCubeSampler)
-        .setImageView(*fallbackBlackCubeView)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+    const bool useRuntimePrefiltered =
+        environment.runtimePrefilteredCube.sampler != nullptr &&
+        environment.runtimePrefilteredCube.view != nullptr;
 
-    vk::DescriptorImageInfo brdfInfo{};
-    brdfInfo
-        .setSampler(*fallbackBrdfLut->getSampler())
-        .setImageView(*fallbackBrdfLut->getImageView())
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+    const bool useRuntimeBrdf =
+        environment.runtimeBrdfLut.sampler != nullptr &&
+        environment.runtimeBrdfLut.view != nullptr;
 
-    vk::DescriptorImageInfo environmentInfo{};
-    environmentInfo
-        .setSampler(*environmentCubeSampler)
-        .setImageView(*environmentCubeView)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+    const bool useRuntimeEnvironment =
+        environment.runtimeEnvironmentCube.sampler != nullptr &&
+        environment.runtimeEnvironmentCube.view != nullptr;
+
+    auto irradianceInfo = useRuntimeIrradiance
+        ? makeImageInfo(environment.runtimeIrradianceCube.sampler, environment.runtimeIrradianceCube.view)
+        : makeImageInfo(*irradianceCubeSampler, *irradianceCubeView);
+
+    auto prefilteredInfo = useRuntimePrefiltered
+        ? makeImageInfo(environment.runtimePrefilteredCube.sampler, environment.runtimePrefilteredCube.view)
+        : makeImageInfo(*prefilteredCubeSampler, *prefilteredCubeView);
+
+    auto brdfInfo = useRuntimeBrdf
+        ? makeImageInfo(environment.runtimeBrdfLut.sampler, environment.runtimeBrdfLut.view)
+        : makeImageInfo(brdfLutTexture->getSampler(), brdfLutTexture->getImageView());
+
+    auto environmentInfo = useRuntimeEnvironment
+        ? makeImageInfo(environment.runtimeEnvironmentCube.sampler, environment.runtimeEnvironmentCube.view)
+        : makeImageInfo(*environmentCubeSampler, *environmentCubeView);
 
     std::array<vk::WriteDescriptorSet, 4> writes{};
 
     writes[0]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(0)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(irradianceInfo);
@@ -2334,6 +2893,7 @@ void Renderer::updateIBLDescriptorSet()
     writes[1]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(1)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(prefilteredInfo);
@@ -2341,6 +2901,7 @@ void Renderer::updateIBLDescriptorSet()
     writes[2]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(2)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(brdfInfo);
@@ -2348,6 +2909,7 @@ void Renderer::updateIBLDescriptorSet()
     writes[3]
         .setDstSet(*iblDescriptorSet)
         .setDstBinding(3)
+        .setDstArrayElement(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(1)
         .setImageInfo(environmentInfo);
@@ -2355,9 +2917,224 @@ void Renderer::updateIBLDescriptorSet()
     device.updateDescriptorSets(writes, {});
 }
 
+void Renderer::resetEnvironmentSettings()
+{
+    showSkybox = true;
+    enableIBL = true;
+    debugReflectionOnly = false;
+
+    skyboxExposure = 1.0f;
+    skyboxLod = 0.0f;
+
+    iblIntensity = 1.0f;
+    diffuseIBLIntensity = 1.0f;
+    specularIBLIntensity = 1.0f;
+
+    toneMappingEnabled = true;
+    gammaEnabled = true;
+    postExposure = 1.0f;
+
+    environmentRotationDegrees = 0.0f;
+    rotateSkybox = true;
+    rotateIBLLighting = true;
+}
 
 
 
+void Renderer::createHdrEnvironmentTexture(const std::string& path)
+{
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+
+    float* pixels = stbi_loadf(path.c_str(), &width, &height, &channels, 4);
+
+    if (!pixels)
+    {
+        throw std::runtime_error("Failed to load HDR environment: " + path);
+    }
+
+    hdrEnvironmentWidth = static_cast<uint32_t>(width);
+    hdrEnvironmentHeight = static_cast<uint32_t>(height);
+
+    const vk::DeviceSize imageSize =
+        static_cast<vk::DeviceSize>(width) *
+        static_cast<vk::DeviceSize>(height) *
+        4 *
+        sizeof(float);
+
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
+
+    bufferUtils.createBuffer(
+        imageSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory);
+
+    {
+        void* mapped = stagingMemory.mapMemory(0, imageSize);
+        std::memcpy(mapped, pixels, static_cast<size_t>(imageSize));
+        stagingMemory.unmapMemory();
+    }
+
+    stbi_image_free(pixels);
+
+    auto& device = vkContext.getDevice();
+
+    const vk::Format hdrFormat = vk::Format::eR32G32B32A32Sfloat;
+
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(hdrFormat)
+        .setExtent(vk::Extent3D{
+            hdrEnvironmentWidth,
+            hdrEnvironmentHeight,
+            1 })
+            .setMipLevels(1)
+        .setArrayLayers(1)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(
+            vk::ImageUsageFlagBits::eTransferDst |
+            vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
+
+    hdrEnvironmentImage = vk::raii::Image(device, imageInfo);
+
+    vk::MemoryRequirements memRequirements =
+        hdrEnvironmentImage.getMemoryRequirements();
+
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memRequirements.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memRequirements.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal));
+
+    hdrEnvironmentMemory = vk::raii::DeviceMemory(device, allocInfo);
+    hdrEnvironmentImage.bindMemory(*hdrEnvironmentMemory, 0);
+
+    auto cmd = bufferUtils.beginSingleTimeCommands();
+
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*hdrEnvironmentImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(1))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer);
+
+    vk::BufferImageCopy copyRegion{};
+    copyRegion
+        .setBufferOffset(0)
+        .setBufferRowLength(0)
+        .setBufferImageHeight(0)
+        .setImageSubresource(
+            vk::ImageSubresourceLayers{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setMipLevel(0)
+            .setBaseArrayLayer(0)
+            .setLayerCount(1))
+        .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+        .setImageExtent(vk::Extent3D{
+            hdrEnvironmentWidth,
+            hdrEnvironmentHeight,
+            1 });
+
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *hdrEnvironmentImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegion);
+
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*hdrEnvironmentImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(1))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead);
+
+    bufferUtils.endSingleTimeCommands(cmd);
+
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*hdrEnvironmentImage)
+        .setViewType(vk::ImageViewType::e2D)
+        .setFormat(hdrFormat)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(1));
+
+    hdrEnvironmentView = vk::raii::ImageView(device, viewInfo);
+
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eRepeat)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setMipLodBias(0.0f)
+        .setAnisotropyEnable(VK_FALSE)
+        .setCompareEnable(VK_FALSE)
+        .setMinLod(0.0f)
+        .setMaxLod(0.0f)
+        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
+        .setUnnormalizedCoordinates(VK_FALSE);
+
+    hdrEnvironmentSampler = vk::raii::Sampler(device, samplerInfo);
+
+    std::cout << "Loaded HDR environment: "
+        << path << " "
+        << hdrEnvironmentWidth << "x"
+        << hdrEnvironmentHeight << "\n";
+}
 
 void Renderer::createSkyboxPipeline()
 {
@@ -2418,7 +3195,7 @@ void Renderer::createSkyboxPipeline()
     depthStencil
         .setDepthTestEnable(VK_FALSE)
         .setDepthWriteEnable(VK_FALSE)
-        
+
         .setDepthBoundsTestEnable(VK_FALSE)
         .setStencilTestEnable(VK_FALSE);
 
@@ -2539,6 +3316,19 @@ void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t image
     commandBuffer.draw(3, 1, 0, 0);
 }
 
+
+
+vk::DescriptorImageInfo Renderer::makeImageInfo(
+    vk::Sampler sampler,
+    vk::ImageView view) const
+{
+    return vk::DescriptorImageInfo{}
+        .setSampler(sampler)
+        .setImageView(view)
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
+}
+
+
 void Renderer::initImGui()
 {
     auto& device = vkContext.getDevice();
@@ -2587,7 +3377,7 @@ void Renderer::initImGui()
     initInfo.CheckVkResultFn = nullptr;
 
     VkFormat colorFormat = static_cast<VkFormat>(swapChainSurfaceFormat.format);
-   
+
     VkFormat imguiDepthFormat = static_cast<VkFormat>(depthFormat);
 
     initInfo.PipelineInfoMain.MSAASamples =
@@ -2681,12 +3471,9 @@ void Renderer::buildImGui()
             minCameraRadius,
             maxCameraRadius);
 
-        EditorPanels::drawLightingPanel(
-            lightDirection,
-            lightColor,
-            ambientColor);
+       
 
-        EditorPanels::drawEnvironmentPanel(
+       EditorPanels::drawEnvironmentPanel(
             showSkybox,
             enableIBL,
             debugReflectionOnly,
@@ -2694,7 +3481,18 @@ void Renderer::buildImGui()
             skyboxLod,
             iblIntensity,
             diffuseIBLIntensity,
-            specularIBLIntensity);
+            specularIBLIntensity,
+            environmentRotationDegrees,
+            rotateSkybox,
+            rotateIBLLighting,
+            [this]() { resetEnvironmentSettings(); });
+
+ /*        EditorPanels::drawPostProcessPanel(
+            toneMappingEnabled,
+            gammaEnabled,
+            postExposure);
+
+
 
         if (!gpuMeshes.empty() && !materials.empty())
         {
@@ -2713,8 +3511,8 @@ void Renderer::buildImGui()
         }
 
 
-   //     const Renderable* selectedRenderable =
-   //         scene.empty() ? nullptr : &scene.getRenderables()[uiState.selectedRenderableIndex];
+        //     const Renderable* selectedRenderable =
+        //         scene.empty() ? nullptr : &scene.getRenderables()[uiState.selectedRenderableIndex];
 
         Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
@@ -2728,12 +3526,12 @@ void Renderer::buildImGui()
 
         const Texture2D* metallicRoughnessTexture =
             selectedMaterial ? selectedMaterial->getMetallicRoughnessTexture() : nullptr;
-     
 
-     //   Material* selectedMaterial = getSelectedRenderableMaterial();
+
+        //   Material* selectedMaterial = getSelectedRenderableMaterial();
         int selectedMaterialIndex = selectedMaterial ? getMaterialIndex(*selectedMaterial) : -1;
         const Texture2D* selectedTexture = selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
-     
+
 
         EditorPanels::drawAssetInspectionPanel(
             scene,
@@ -2760,30 +3558,32 @@ void Renderer::buildImGui()
 
 
         void drawVerificationPanel(
-            const Scene& scene,
-            const EditorUiState& uiState,
-            const std::string& currentModelPath,
-            const Renderable* selectedRenderable,
-            const Material* selectedMaterial,
-            const Texture2D* baseColorTexture,
-            const Texture2D* normalTexture,
-            const Texture2D* metallicRoughnessTexture,
-            const glm::vec3& lightDirection,
-            const glm::vec3& lightColor,
-            const glm::vec3& ambientColor);
+            const Scene & scene,
+            const EditorUiState & uiState,
+            const std::string & currentModelPath,
+            const Renderable * selectedRenderable,
+            const Material * selectedMaterial,
+            const Texture2D * baseColorTexture,
+            const Texture2D * normalTexture,
+            const Texture2D * metallicRoughnessTexture,
+            const glm::vec3 & lightDirection,
+            const glm::vec3 & lightColor,
+            const glm::vec3 & ambientColor);
 
         EditorPanels::drawSelectedMaterialPanel(
             selectedRenderable,
             selectedMaterial,
             selectedTexture,
             selectedMaterialIndex);
-        
-        
+
+
+        */ 
+
         EditorPanels::drawDebugPanel(
             uiState,
             isWireframeSupported());
 
-        
+       
 
         ImGui::End();
     }

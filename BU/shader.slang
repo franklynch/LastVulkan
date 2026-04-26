@@ -20,6 +20,8 @@ struct UniformBuffer
 
     float4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
     float4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
+    float4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unused
+    float4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
 };
 
 [[vk::binding(0, 0)]]
@@ -30,7 +32,8 @@ struct PushConstants
     float4x4 model;
     float4x4 normalMatrix;
     float4 baseColorFactor;
-    float4 materialParams; // x = metallic, y = roughness, z = normalScale, w unused
+    float4 materialParams;   // x = metallic, y = roughness, z = normalScale, w = alphaCutoff
+    float4 alphaModeParams;  // x = isMask, y = isBlend, z/w unused
 };
 
 [[vk::push_constant]]
@@ -134,6 +137,34 @@ float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
     return ggxV * ggxL;
 }
 
+float3 ToneMapACES(float3 color)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+
+    color = (color * (a * color + b)) / (color * (c * color + d) + e);
+    return saturate(color);
+}
+
+float3 ApplyGamma(float3 color)
+{
+    return pow(color, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+}
+
+float3 RotateEnvironmentY(float3 dir, float angleRadians)
+{
+    float s = sin(angleRadians);
+    float c = cos(angleRadians);
+
+    return float3(
+        c * dir.x + s * dir.z,
+        dir.y,
+       -s * dir.x + c * dir.z
+    );
+}
 
 [shader("fragment")]
 float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
@@ -141,28 +172,38 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     float4 texColor = baseColorTexture.Sample(input.fragTexCoord);
     float4 baseColor = texColor * pc.baseColorFactor;
 
+    bool isMaskMaterial = (pc.alphaModeParams.x > 0.5);
+    bool isBlendMaterial = (pc.alphaModeParams.y > 0.5);
+    float alphaCutoff = pc.materialParams.w;
+
+    if (isMaskMaterial && baseColor.a < alphaCutoff)
+    {
+        discard;
+    }
+
     float normalScale = pc.materialParams.z;
 
     float3 tangentNormal = normalTexture.Sample(input.fragTexCoord).xyz * 2.0 - 1.0;
     tangentNormal.xy *= normalScale;
     tangentNormal = normalize(tangentNormal);
 
-    float3x3 TBN = float3x3(
-        normalize(input.fragTangent),
-        normalize(input.fragBitangent),
-        normalize(input.fragNormal)
-    );
-
-    float3 N = normalize(mul(TBN, tangentNormal));
+    float3 T = normalize(input.fragTangent);
+    float3 B = normalize(input.fragBitangent);
+    float3 Ng = normalize(input.fragNormal);
 
     if (!isFrontFace)
     {
-        N = -N;
+        T = -T;
+        B = -B;
+        Ng = -Ng;
     }
+
+    float3x3 TBN = float3x3(T, B, Ng);
+    float3 N = normalize(mul(TBN, tangentNormal));
 
     float3 mrSample = metallicRoughnessTexture.Sample(input.fragTexCoord).rgb;
 
-    float roughness = saturate(pc.materialParams.y * mrSample.g);
+    float roughness = clamp(pc.materialParams.y * mrSample.g, 0.04, 1.0);
     float metallic = saturate(pc.materialParams.x * mrSample.b);
 
     float3 V = normalize(ubo.cameraPosition.xyz - input.worldPos);
@@ -179,16 +220,25 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     bool debugReflectionOnly = (ubo.environmentParams1.z > 0.5);
     bool enableIBL = (ubo.environmentParams1.w > 0.5);
 
-    // Reflection-only debug mode
+    float environmentRotation = ubo.postProcessParams.w;
+    bool rotateIBLLighting = (ubo.environmentControlParams.y > 0.5);
+
     if (debugReflectionOnly)
     {
         float3 R = reflect(-V, N);
         R = float3(R.x, R.z, R.y);
+        R = normalize(R);
 
-        float3 reflection = environmentTexture.SampleLevel(normalize(R), skyboxLod).rgb;
+        if (rotateIBLLighting)
+        {
+            R = RotateEnvironmentY(R, environmentRotation);
+        }
+
+        float3 reflection = environmentTexture.SampleLevel(R, skyboxLod).rgb;
         reflection *= exposure;
 
-        return float4(reflection, 1.0);
+        float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
+        return float4(reflection, outputAlpha);
     }
 
     // -------------------------
@@ -205,7 +255,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     float3 F = FresnelSchlick(HdotV, F0);
 
     float3 numerator = D * G * F;
-    float denominator = max(4.0 * NdotV * NdotL, 0.000001);
+    float denominator = max(4.0 * NdotV * NdotL, 0.001);
     float3 specularDirect = numerator / denominator;
 
     float3 kdDirect = (1.0 - F) * (1.0 - metallic);
@@ -216,8 +266,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         ubo.lightColor.rgb *
         NdotL;
 
-    // Optional ambient fallback from your existing light setup
-    directLighting += baseColor.rgb * ubo.ambientColor.rgb * 0.15;
+  //  directLighting += baseColor.rgb * ubo.ambientColor.rgb * 0.15;
 
     // -------------------------
     // IBL
@@ -231,18 +280,30 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         float3 kdIBL = (1.0 - Fibl) * (1.0 - metallic);
 
         float3 Nenv = float3(N.x, N.z, N.y);
-        float3 irradiance = irradianceTexture.Sample(normalize(Nenv)).rgb;
+        Nenv = normalize(Nenv);
+
+        if (rotateIBLLighting)
+        {
+            Nenv = RotateEnvironmentY(Nenv, environmentRotation);
+        }
+
+        float3 irradiance = irradianceTexture.Sample(Nenv).rgb;
         diffuseIBL = irradiance * baseColor.rgb * kdIBL;
 
         float3 R = reflect(-V, N);
         R = float3(R.x, R.z, R.y);
+        R = normalize(R);
 
-        float maxPrefilterMip = 8.0;
+        if (rotateIBLLighting)
+        {
+            R = RotateEnvironmentY(R, environmentRotation);
+        }
+
+        float maxPrefilterMip = 6.0;
         float prefilterLod = roughness * maxPrefilterMip;
+        float3 prefiltered = prefilteredTexture.SampleLevel(R, prefilterLod).rgb;
 
-        float3 prefiltered = prefilteredTexture.SampleLevel(normalize(R), prefilterLod).rgb;
         float2 brdf = brdfLutTexture.Sample(float2(NdotV, roughness)).rg;
-
         specularIBL = prefiltered * (Fibl * brdf.x + brdf.y);
     }
 
@@ -250,10 +311,28 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 
     if (enableIBL)
     {
-        
         color += diffuseIBL * diffuseIBLIntensity * iblIntensity;
         color += specularIBL * specularIBLIntensity * iblIntensity;
     }
 
-    return float4(color, 1.0);
+    float postExposure = ubo.postProcessParams.x;
+    bool toneMappingEnabled = (ubo.postProcessParams.y > 0.5);
+    bool gammaEnabled = (ubo.postProcessParams.z > 0.5);
+
+    color *= postExposure;
+
+    if (toneMappingEnabled)
+    {
+        color = ToneMapACES(color);
+    }
+
+    if (gammaEnabled)
+    {
+        color = ApplyGamma(color);
+    }
+
+    float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
+    return float4(color, outputAlpha);
+
+    
 }

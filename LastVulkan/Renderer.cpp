@@ -157,7 +157,8 @@ void Renderer::init()
         vkContext,
         bufferUtils,
         imageUtils,
-        TEXTURE_PATH
+        TEXTURE_PATH,
+        vk::Format::eR8G8B8A8Srgb
     ));
 
     camera.setTarget({ 0.0f, 0.0f, 0.0f });
@@ -165,67 +166,52 @@ void Renderer::init()
     camera.setFov(cameraFov);
     camera.setNearFar(cameraNear, cameraFar);
 
+    // currentModelPath = "models/Suzanne/glTF/Suzanne.gltf";
+
     currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
+    
     std::cout << "Loading model: " << currentModelPath << std::endl;
 
     GltfLoader loader;
     GltfSceneData imported = loader.load(currentModelPath);
-
-
-
-
 
     if (textures.empty())
     {
         throw std::runtime_error("default texture is not available");
     }
 
-    std::vector<int> gltfImageToNormalTextureIndex(imported.images.size(), -1);
+    if (!defaultNormalTexture)
+    {
+        throw std::runtime_error("default normal texture is not available");
+    }
 
+    if (!defaultMetallicRoughnessTexture)
+    {
+        throw std::runtime_error("default metallic-roughness texture is not available");
+    }
+
+    // ------------------------------------------------------------
+    // 1. Mark image usage by texture role
+    // ------------------------------------------------------------
+
+    std::vector<bool> imageUsedAsBaseColor(imported.images.size(), false);
     std::vector<bool> imageUsedAsNormal(imported.images.size(), false);
+    std::vector<bool> imageUsedAsMR(imported.images.size(), false);
 
     for (const auto& importedMaterial : imported.materials)
     {
+        if (importedMaterial.baseColorImageIndex >= 0 &&
+            importedMaterial.baseColorImageIndex < static_cast<int>(imageUsedAsBaseColor.size()))
+        {
+            imageUsedAsBaseColor[importedMaterial.baseColorImageIndex] = true;
+        }
+
         if (importedMaterial.normalImageIndex >= 0 &&
             importedMaterial.normalImageIndex < static_cast<int>(imageUsedAsNormal.size()))
         {
             imageUsedAsNormal[importedMaterial.normalImageIndex] = true;
         }
-    }
 
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        if (!imageUsedAsNormal[i])
-            continue;
-
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
-            continue;
-
-        if (image.channels != 3 && image.channels != 4)
-            continue;
-
-        normalTextures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty() ? ("glTF normal image " + std::to_string(i)) : image.name,
-            vk::Format::eR8G8B8A8Unorm));
-
-        gltfImageToNormalTextureIndex[i] = static_cast<int>(normalTextures.size()) - 1;
-    }
-
-    std::vector<int> gltfImageToMRTextureIndex(imported.images.size(), -1);
-
-    std::vector<bool> imageUsedAsMR(imported.images.size(), false);
-
-    for (const auto& importedMaterial : imported.materials)
-    {
         if (importedMaterial.metallicRoughnessImageIndex >= 0 &&
             importedMaterial.metallicRoughnessImageIndex < static_cast<int>(imageUsedAsMR.size()))
         {
@@ -233,9 +219,15 @@ void Renderer::init()
         }
     }
 
+    // ------------------------------------------------------------
+    // 2. Upload base-color textures as sRGB
+    // ------------------------------------------------------------
+
+    std::vector<int> gltfImageToBaseColorTextureIndex(imported.images.size(), -1);
+
     for (size_t i = 0; i < imported.images.size(); ++i)
     {
-        if (!imageUsedAsMR[i])
+        if (!imageUsedAsBaseColor[i])
             continue;
 
         const auto& image = imported.images[i];
@@ -244,36 +236,8 @@ void Renderer::init()
             continue;
 
         if (image.channels != 3 && image.channels != 4)
-            continue;
-
-        metallicRoughnessTextures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty() ? ("glTF metallicRoughness image " + std::to_string(i)) : image.name,
-            vk::Format::eR8G8B8A8Unorm));
-
-        gltfImageToMRTextureIndex[i] = static_cast<int>(metallicRoughnessTextures.size()) - 1;
-    }
-
-    std::vector<int> gltfImageToTextureIndex(imported.images.size(), -1);
-
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
         {
-            continue;
-        }
-
-        if (image.channels != 3 && image.channels != 4)
-        {
-            std::cout << "Skipping glTF image " << i
+            std::cout << "Skipping glTF baseColor image " << i
                 << " (" << image.name << ") because channels = "
                 << image.channels << " (expected 3 or 4)\n";
             continue;
@@ -287,89 +251,232 @@ void Renderer::init()
             static_cast<uint32_t>(image.width),
             static_cast<uint32_t>(image.height),
             static_cast<uint32_t>(image.channels),
-            image.name.empty() ? ("glTF image " + std::to_string(i)) : image.name
+            image.name.empty()
+            ? ("glTF baseColor image " + std::to_string(i))
+            : image.name,
+            vk::Format::eR8G8B8A8Srgb
         ));
 
-        gltfImageToTextureIndex[i] = static_cast<int>(textures.size()) - 1;
-
-
-
-
+        gltfImageToBaseColorTextureIndex[i] =
+            static_cast<int>(textures.size()) - 1;
     }
 
+    // ------------------------------------------------------------
+    // 3. Upload normal textures as UNORM
+    // ------------------------------------------------------------
+
+    std::vector<int> gltfImageToNormalTextureIndex(imported.images.size(), -1);
+
+    for (size_t i = 0; i < imported.images.size(); ++i)
+    {
+        if (!imageUsedAsNormal[i])
+            continue;
+
+        const auto& image = imported.images[i];
+
+        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
+            continue;
+
+        if (image.channels != 3 && image.channels != 4)
+        {
+            std::cout << "Skipping glTF normal image " << i
+                << " (" << image.name << ") because channels = "
+                << image.channels << " (expected 3 or 4)\n";
+            continue;
+        }
+
+        normalTextures.push_back(std::make_unique<Texture2D>(
+            vkContext,
+            bufferUtils,
+            imageUtils,
+            image.pixels.data(),
+            static_cast<uint32_t>(image.width),
+            static_cast<uint32_t>(image.height),
+            static_cast<uint32_t>(image.channels),
+            image.name.empty()
+            ? ("glTF normal image " + std::to_string(i))
+            : image.name,
+            vk::Format::eR8G8B8A8Unorm
+        ));
+
+        gltfImageToNormalTextureIndex[i] =
+            static_cast<int>(normalTextures.size()) - 1;
+    }
+
+    // ------------------------------------------------------------
+    // 4. Upload metallic-roughness textures as UNORM
+    // ------------------------------------------------------------
+
+    std::vector<int> gltfImageToMRTextureIndex(imported.images.size(), -1);
+
+    for (size_t i = 0; i < imported.images.size(); ++i)
+    {
+        if (!imageUsedAsMR[i])
+            continue;
+
+        const auto& image = imported.images[i];
+
+        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
+            continue;
+
+        if (image.channels != 3 && image.channels != 4)
+        {
+            std::cout << "Skipping glTF metallicRoughness image " << i
+                << " (" << image.name << ") because channels = "
+                << image.channels << " (expected 3 or 4)\n";
+            continue;
+        }
+
+        metallicRoughnessTextures.push_back(std::make_unique<Texture2D>(
+            vkContext,
+            bufferUtils,
+            imageUtils,
+            image.pixels.data(),
+            static_cast<uint32_t>(image.width),
+            static_cast<uint32_t>(image.height),
+            static_cast<uint32_t>(image.channels),
+            image.name.empty()
+            ? ("glTF metallicRoughness image " + std::to_string(i))
+            : image.name,
+            vk::Format::eR8G8B8A8Unorm
+        ));
+
+        gltfImageToMRTextureIndex[i] =
+            static_cast<int>(metallicRoughnessTextures.size()) - 1;
+    }
+
+    // ------------------------------------------------------------
+    // 5. Create materials
     // Slot 0 = default fallback material
-    materials.push_back(std::make_unique<Material>(getDefaultTexture()));
+    // ------------------------------------------------------------
+
+    auto fallbackMaterial = std::make_unique<Material>(
+        getDefaultTexture(),
+        defaultNormalTexture.get(),
+        defaultMetallicRoughnessTexture.get()
+    );
+
+    fallbackMaterial->setName("Default fallback material");
+
+    materials.push_back(std::move(fallbackMaterial));
 
     for (const auto& importedMaterial : imported.materials)
     {
-        Texture2D* assignedTexture = &getDefaultTexture();
+        Texture2D* assignedBaseColorTexture = &getDefaultTexture();
 
         if (importedMaterial.baseColorImageIndex >= 0 &&
-            importedMaterial.baseColorImageIndex < static_cast<int>(gltfImageToTextureIndex.size()))
+            importedMaterial.baseColorImageIndex <
+            static_cast<int>(gltfImageToBaseColorTextureIndex.size()))
         {
-            int textureIndex = gltfImageToTextureIndex[importedMaterial.baseColorImageIndex];
-            if (textureIndex >= 0 && textureIndex < static_cast<int>(textures.size()))
+            const int baseColorTextureIndex =
+                gltfImageToBaseColorTextureIndex[importedMaterial.baseColorImageIndex];
+
+            if (baseColorTextureIndex >= 0 &&
+                baseColorTextureIndex < static_cast<int>(textures.size()))
             {
-                assignedTexture = textures[textureIndex].get();
+                assignedBaseColorTexture = textures[baseColorTextureIndex].get();
             }
         }
 
-        auto material = std::make_unique<Material>(*assignedTexture);
+        auto material = std::make_unique<Material>(
+            *assignedBaseColorTexture,
+            defaultNormalTexture.get(),
+            defaultMetallicRoughnessTexture.get()
+        );
+
+
+
         material->setBaseColorFactor(importedMaterial.baseColorFactor);
         material->setName(importedMaterial.name);
         material->setDoubleSided(importedMaterial.doubleSided);
         material->setMetallicFactor(importedMaterial.metallicFactor);
         material->setRoughnessFactor(importedMaterial.roughnessFactor);
         material->setNormalScale(importedMaterial.normalScale);
-
         material->setAlphaMode(importedMaterial.alphaMode);
         material->setAlphaCutoff(importedMaterial.alphaCutoff);
 
         Texture2D* assignedNormalTexture = defaultNormalTexture.get();
+        bool hasRealNormalTexture = false;
 
         if (importedMaterial.normalImageIndex >= 0 &&
-            importedMaterial.normalImageIndex < static_cast<int>(gltfImageToNormalTextureIndex.size()))
+            importedMaterial.normalImageIndex <
+            static_cast<int>(gltfImageToNormalTextureIndex.size()))
         {
-            int normalTextureIndex = gltfImageToNormalTextureIndex[importedMaterial.normalImageIndex];
+            const int normalTextureIndex =
+                gltfImageToNormalTextureIndex[importedMaterial.normalImageIndex];
+
             if (normalTextureIndex >= 0 &&
                 normalTextureIndex < static_cast<int>(normalTextures.size()))
             {
                 assignedNormalTexture = normalTextures[normalTextureIndex].get();
+                hasRealNormalTexture = true;
             }
         }
 
         Texture2D* assignedMRTexture = defaultMetallicRoughnessTexture.get();
+        bool hasRealMRTexture = false;
 
         if (importedMaterial.metallicRoughnessImageIndex >= 0 &&
-            importedMaterial.metallicRoughnessImageIndex < static_cast<int>(gltfImageToMRTextureIndex.size()))
+            importedMaterial.metallicRoughnessImageIndex <
+            static_cast<int>(gltfImageToMRTextureIndex.size()))
         {
-            int mrTextureIndex = gltfImageToMRTextureIndex[importedMaterial.metallicRoughnessImageIndex];
+            const int mrTextureIndex =
+                gltfImageToMRTextureIndex[importedMaterial.metallicRoughnessImageIndex];
+
             if (mrTextureIndex >= 0 &&
                 mrTextureIndex < static_cast<int>(metallicRoughnessTextures.size()))
             {
                 assignedMRTexture = metallicRoughnessTextures[mrTextureIndex].get();
+                hasRealMRTexture = true;
             }
         }
 
-        material->setMetallicRoughnessTexture(assignedMRTexture);
-
-        material->setNormalTexture(assignedNormalTexture);
+        material->setNormalTexture(assignedNormalTexture, hasRealNormalTexture);
+        material->setMetallicRoughnessTexture(assignedMRTexture, hasRealMRTexture);
 
         materials.push_back(std::move(material));
-
-        std::cout << "Loaded textures: " << textures.size() << std::endl;
-
-
     }
 
+    std::cout << "Loaded baseColor textures: "
+        << textures.size() << std::endl;
 
+    std::cout << "Loaded normal textures: "
+        << normalTextures.size() << std::endl;
+
+    std::cout << "Loaded metallicRoughness textures: "
+        << metallicRoughnessTextures.size() << std::endl;
+
+    // ------------------------------------------------------------
+    // 6. Create renderables
+    // ------------------------------------------------------------
 
     if (imported.renderables.empty())
     {
         throw std::runtime_error("glTF import produced no renderables");
     }
 
+    glm::vec3 minBounds(FLT_MAX);
+    glm::vec3 maxBounds(-FLT_MAX);
 
+    for (const auto& importedRenderable : imported.renderables)
+    {
+        const glm::mat4 worldMatrix =
+            importedRenderable.transform.toMatrix(); // use your actual function name
+
+        for (const auto& vertex : importedRenderable.mesh.vertices)
+        {
+            glm::vec3 worldPos =
+                glm::vec3(worldMatrix * glm::vec4(vertex.pos, 1.0f));
+
+            minBounds = glm::min(minBounds, worldPos);
+            maxBounds = glm::max(maxBounds, worldPos);
+        }
+    }
+
+    glm::vec3 modelCenter = (minBounds + maxBounds) * 0.5f;
+    glm::mat4 modelRootMatrix = glm::translate(glm::mat4(1.0f), -modelCenter);
+
+    camera.frameBounds(minBounds, maxBounds);
 
     for (size_t i = 0; i < imported.renderables.size(); ++i)
     {
@@ -380,10 +487,13 @@ void Renderer::init()
             imported.renderables[i].mesh.indices
         ));
 
+        const int importedMaterialIndex =
+            imported.renderables[i].materialIndex;
+
         Material& assignedMaterial =
-            (imported.renderables[i].materialIndex >= 0 &&
-                static_cast<size_t>(imported.renderables[i].materialIndex + 1) < materials.size())
-            ? *materials[imported.renderables[i].materialIndex + 1]
+            importedMaterialIndex >= 0 &&
+            importedMaterialIndex + 1 < static_cast<int>(materials.size())
+            ? *materials[importedMaterialIndex + 1]
             : getDefaultMaterial();
 
         Renderable& renderable = scene.addRenderable(
@@ -392,12 +502,39 @@ void Renderer::init()
             "glTF " + std::to_string(i)
         );
 
-        renderable.getTransform() = imported.renderables[i].transform;
+
+
+        glm::mat4 originalMatrix =
+            imported.renderables[i].transform.toMatrix();
+
+        glm::mat4 orientationFix =
+            glm::rotate(
+                glm::mat4(1.0f),
+                glm::radians(-90.0f),
+                glm::vec3(1.0f, 0.0f, 0.0f)
+            );
+
+        glm::mat4 frontFix =
+            glm::rotate(glm::mat4(1.0f),
+                glm::radians(180.0f),
+                glm::vec3(0.0f, 1.0f, 0.0f));
+
+        glm::mat4 finalMatrix =
+            modelRootMatrix * originalMatrix;
+
+        Transform& t = renderable.getTransform();
+        t.useMatrixOverride = true;
+        t.matrixOverride = finalMatrix;
 
         std::cout << "glTF primitive " << i
-            << " material index: " << imported.renderables[i].materialIndex
+            << " material index: "
+            << imported.renderables[i].materialIndex
             << std::endl;
     }
+
+
+
+
 
     uiState.selectedRenderableIndex = scene.empty() ? -1 : 0;
 
@@ -417,7 +554,8 @@ void Renderer::init()
         vkContext,
         bufferUtils,
         imageUtils,
-        "assets/ibl/brdf_lut.png"
+        "assets/ibl/brdf_lut.png",
+        vk::Format::eR8G8B8A8Srgb
     );
 
     createEnvironmentCubemap({
@@ -1263,8 +1401,10 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     ubo.invProj = glm::inverse(ubo.proj);
 
     ubo.lightDirection = glm::vec4(glm::normalize(lightDirection), 0.0f);
-    ubo.lightColor = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f);
-    ubo.ambientColor = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+    
+    ubo.lightColor = glm::vec4(lightColor * lightIntensity, 1.0f);
+    ubo.ambientColor = glm::vec4(ambientColor * ambientIntensity, 1.0f);
+
     ubo.cameraPosition = glm::vec4(camera.getPosition(), 1.0f);
 
     ubo.environmentParams0 = glm::vec4(
@@ -1295,10 +1435,12 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         0.0f
     );
 
-
+    lastUbo = ubo;
 
 
     std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+
+
 
 
 
@@ -3420,7 +3562,7 @@ void Renderer::buildImGui()
 {
     if (uiState.showDebugPanel)
     {
-        ImGui::Begin("Debug Panel", &uiState.showDebugPanel);
+        ImGui::Begin("Rendering Debug", &uiState.showDebugPanel);
 
         uint32_t totalVertexCount = 0;
         uint32_t totalIndexCount = 0;
@@ -3467,9 +3609,14 @@ void Renderer::buildImGui()
             minCameraRadius,
             maxCameraRadius);
 
-       
 
-       EditorPanels::drawEnvironmentPanel(
+        EditorPanels::drawLookDevPanel(
+            lightDirection,
+            lightColor,
+            lightIntensity,
+            ambientColor,
+            ambientIntensity,
+
             showSkybox,
             enableIBL,
             debugReflectionOnly,
@@ -3478,37 +3625,18 @@ void Renderer::buildImGui()
             iblIntensity,
             diffuseIBLIntensity,
             specularIBLIntensity,
+
+            toneMappingEnabled,
+            gammaEnabled,
+            postExposure,
+
             environmentRotationDegrees,
             rotateSkybox,
             rotateIBLLighting,
+
             [this]() { resetEnvironmentSettings(); });
 
- /*        EditorPanels::drawPostProcessPanel(
-            toneMappingEnabled,
-            gammaEnabled,
-            postExposure);
-
-
-
-        if (!gpuMeshes.empty() && !materials.empty())
-        {
-            EditorPanels::drawScenePanel(
-                scene,
-                uiState,
-                *gpuMeshes[0],
-                getDefaultMaterial(),
-                camera,
-                [this]() { resetDefaultSceneLayout(); },
-                [this]() { focusSelectedRenderable(); });
-        }
-        else
-        {
-            ImGui::TextUnformatted("Scene editing unavailable: no GPU mesh or default material loaded.");
-        }
-
-
-        //     const Renderable* selectedRenderable =
-        //         scene.empty() ? nullptr : &scene.getRenderables()[uiState.selectedRenderableIndex];
+        EditorPanels::drawUboInspector(lastUbo);
 
         Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
@@ -3529,15 +3657,12 @@ void Renderer::buildImGui()
         const Texture2D* selectedTexture = selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
 
 
-        EditorPanels::drawAssetInspectionPanel(
-            scene,
-            uiState,
-            gpuMeshes.size(),
-            textures.size(),
-            materials.size(),
-            selectedMaterialIndex,
+        EditorPanels::drawSelectedMaterialPanel(
+            selectedRenderable,
             selectedMaterial,
-            selectedTexture);
+            selectedTexture,
+            selectedMaterialIndex);
+
 
         EditorPanels::drawVerificationPanel(
             scene,
@@ -3552,34 +3677,11 @@ void Renderer::buildImGui()
             lightColor,
             ambientColor);
 
-
-        void drawVerificationPanel(
-            const Scene & scene,
-            const EditorUiState & uiState,
-            const std::string & currentModelPath,
-            const Renderable * selectedRenderable,
-            const Material * selectedMaterial,
-            const Texture2D * baseColorTexture,
-            const Texture2D * normalTexture,
-            const Texture2D * metallicRoughnessTexture,
-            const glm::vec3 & lightDirection,
-            const glm::vec3 & lightColor,
-            const glm::vec3 & ambientColor);
-
-        EditorPanels::drawSelectedMaterialPanel(
-            selectedRenderable,
-            selectedMaterial,
-            selectedTexture,
-            selectedMaterialIndex);
-
-
-        */ 
-
         EditorPanels::drawDebugPanel(
             uiState,
             isWireframeSupported());
 
-       
+        
 
         ImGui::End();
     }
@@ -3589,6 +3691,10 @@ void Renderer::buildImGui()
         ImGui::ShowDemoWindow(&uiState.showDemoWindow);
     }
 }
+ 
+
+    
+
 
 
 void Renderer::renderImGui(vk::CommandBuffer commandBuffer)

@@ -6,15 +6,17 @@
 #include <stdexcept>
 
 #include <stb_image.h>
-
-Texture2D::Texture2D(VulkanContext& vkContext,
+Texture2D::Texture2D(
+    VulkanContext& vkContext,
     BufferUtils& bufferUtils,
     ImageUtils& imageUtils,
-    const std::string& path)
+    const std::string& path,
+    vk::Format format)
     : vkContext(vkContext)
     , bufferUtils(bufferUtils)
     , imageUtils(imageUtils)
     , sourcePath(path)
+    , imageFormat(format) // THIS is "passing it through"
 {
     loadFromFile(path);
     createImageView();
@@ -112,7 +114,7 @@ void Texture2D::loadFromFile(const std::string& path)
     int texHeight = 0;
     int texChannels = 0;
 
-    imageFormat = vk::Format::eR8G8B8A8Srgb;
+    
 
     stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
     if (!pixels)

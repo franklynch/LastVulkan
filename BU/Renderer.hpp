@@ -30,6 +30,15 @@ import vulkan_hpp;
 #include "Camera.hpp"
 #include "Scene.hpp"
 #include "EditorUiState.hpp"
+#include "EnvironmentResources.hpp"
+#include "EnvironmentUtils.hpp"
+#include "BrdfLutRenderer.hpp"
+#include "EnvironmentRenderer.hpp"
+#include "IrradianceRenderer.hpp"
+#include "PrefilterRenderer.hpp"
+
+
+
 
 
 class Renderer
@@ -63,8 +72,8 @@ private:
     vk::Format findDepthFormat();
 
     bool hasStencilComponent(vk::Format format);
-       
-      
+
+
     void loadModel();
     void createUniformBuffers();
     void createDescriptorPool();
@@ -82,11 +91,13 @@ private:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
-    
-    
-    
+
+
+
+
+
     void focusSelectedRenderable();
-    
+
     void resetDefaultSceneLayout();
 
     void cleanupDescriptorResources();
@@ -121,7 +132,7 @@ private:
         vk::Image image,
         vk::ImageAspectFlags aspectMask);
 
-    
+
 
     static uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
     static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
@@ -134,12 +145,12 @@ private:
     Texture2D& getDefaultTexture();
     Material& getDefaultMaterial();
 
-      
-    
-  
 
-    
-    
+
+
+
+
+
 
 private:
     Window&             window;
@@ -156,9 +167,17 @@ private:
     vk::raii::Pipeline wireframeDoubleSidedPipeline = nullptr;
 
     std::string currentModelPath;
-
-    float rotationSpeed = 90.0f;
+     
     
+    EnvironmentResources environment;
+    std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
+    std::unique_ptr<EnvironmentRenderer> environmentRenderer;
+    std::unique_ptr<IrradianceRenderer> irradianceRenderer;
+    std::unique_ptr<PrefilterRenderer> prefilterRenderer;
+
+
+    float rotationSpeed = 10.0f;
+
 
     float cameraRadius = 3.0f;
     float cameraYaw = 0.0f;
@@ -179,8 +198,13 @@ private:
     glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
     glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
-    glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
-    glm::vec3 ambientColor = glm::vec3(0.15f, 0.15f, 0.15f);
+    
+
+    glm::vec3 lightColor{ 1.0f };
+    float lightIntensity = 3.0f;
+
+    glm::vec3 ambientColor{ 1.0f };
+    float ambientIntensity = 0.0f;
 
     float frameTimeMs = 0.0f;
     float fps = 0.0f;
@@ -199,7 +223,7 @@ private:
 
     std::vector<std::unique_ptr<Texture2D>>     metallicRoughnessTextures;
     std::unique_ptr<Texture2D>                  defaultMetallicRoughnessTexture;
-    
+
 
     vk::raii::SwapchainKHR              swapChain = nullptr;
     std::vector<vk::Image>              swapChainImages;
@@ -208,7 +232,7 @@ private:
     std::vector<vk::raii::ImageView>    swapChainImageViews;
 
     vk::raii::PipelineLayout            pipelineLayout = nullptr;
-   
+
 
     vk::raii::Image             colorImage = nullptr;
     vk::raii::DeviceMemory      colorImageMemory = nullptr;
@@ -222,7 +246,7 @@ private:
     vk::raii::ImageView         depthImageView = nullptr;
 
     std::vector<vk::raii::CommandBuffer> commandBuffers;
-        
+
     std::vector<vk::raii::Semaphore>    presentCompleteSemaphores;
     std::vector<vk::raii::Semaphore>    renderFinishedSemaphores;
     std::vector<vk::raii::Fence>        inFlightFences;
@@ -237,24 +261,24 @@ private:
 
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
 
-    
+
 
     std::vector<std::unique_ptr<Texture2D>> textures;
     std::vector<std::unique_ptr<Material>> materials;
 
-    
-   
+
+
     Scene scene;
 
     vk::raii::DescriptorPool        descriptorPool = nullptr;
     vk::raii::DescriptorSetLayout   frameDescriptorSetLayout = nullptr;
     vk::raii::DescriptorSetLayout   materialDescriptorSetLayout = nullptr;
-    
+
 
     std::vector<vk::raii::DescriptorSet> frameDescriptorSets;
     std::vector<vk::raii::DescriptorSet> materialDescriptorSets;
-    
-    
+
+
     std::vector<vk::raii::Buffer> uniformBuffers;
     std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMapped;
@@ -263,10 +287,11 @@ private:
     void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
     void createSkyboxPipeline();
     void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
-    
+    void resetEnvironmentSettings();
+
 
     vk::raii::Image environmentCubeImage{ nullptr };
-    
+
     vk::raii::DeviceMemory environmentCubeMemory{ nullptr };
     vk::raii::ImageView environmentCubeView{ nullptr };
     vk::raii::Sampler environmentCubeSampler{ nullptr };
@@ -274,14 +299,7 @@ private:
     vk::raii::PipelineLayout skyboxPipelineLayout{ nullptr };
     vk::raii::Pipeline skyboxPipeline{ nullptr };
 
-    
-    
 
-    
-    
-
-    
-    
     // IBL descriptor set
     vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
     vk::raii::DescriptorSet iblDescriptorSet{ nullptr };
@@ -300,21 +318,67 @@ private:
     void createFallbackBrdfLut();
     void createFallbackBlackCube();
     void updateIBLDescriptorSet();
-    
 
-   
     // --- Environment / IBL controls ---
     bool showSkybox = true;
     bool enableIBL = false;
     bool debugReflectionOnly = false;
-
     float skyboxExposure = 1.0f;
     float skyboxLod = 0.0f;
-
     float iblIntensity = 1.0f;
+    float environmentRotationDegrees = 0.0f;
+    bool rotateSkybox = true;
+    bool rotateIBLLighting = true;
     float diffuseIBLIntensity = 1.0f;
     float specularIBLIntensity = 1.0f;
 
-    
-    
+    std::unique_ptr<Texture2D> brdfLutTexture;
+
+    vk::raii::Image irradianceCubeImage{ nullptr };
+    vk::raii::DeviceMemory irradianceCubeMemory{ nullptr };
+    vk::raii::ImageView irradianceCubeView{ nullptr };
+    vk::raii::Sampler irradianceCubeSampler{ nullptr };
+
+    vk::raii::Image prefilteredCubeImage{ nullptr };
+    vk::raii::DeviceMemory prefilteredCubeMemory{ nullptr };
+    vk::raii::ImageView prefilteredCubeView{ nullptr };
+    vk::raii::Sampler prefilteredCubeSampler{ nullptr };
+
+    void createCubemapFromDDS(
+        const std::string& path,
+        vk::raii::Image& outImage,
+        vk::raii::DeviceMemory& outMemory,
+        vk::raii::ImageView& outView,
+        vk::raii::Sampler& outSampler,
+        bool allowMipSampling);
+
+    void createIrradianceCubemapFromDDS(const std::string& path);
+    void createPrefilteredCubemapFromDDS(const std::string& path);
+
+    bool toneMappingEnabled = true;
+    bool gammaEnabled = true;
+    float postExposure = 1.0f;
+
+
+
+    vk::raii::Pipeline transparentPipeline = nullptr;
+    vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;
+
+    vk::raii::Image hdrEnvironmentImage{ nullptr };
+    vk::raii::DeviceMemory hdrEnvironmentMemory{ nullptr };
+    vk::raii::ImageView hdrEnvironmentView{ nullptr };
+    vk::raii::Sampler hdrEnvironmentSampler{ nullptr };
+
+    uint32_t hdrEnvironmentWidth = 0;
+    uint32_t hdrEnvironmentHeight = 0;
+
+    void createHdrEnvironmentTexture(const std::string& path);
+
+
+    vk::DescriptorImageInfo makeImageInfo(
+        vk::Sampler sampler,
+        vk::ImageView view) const;
+
+  
+
 };

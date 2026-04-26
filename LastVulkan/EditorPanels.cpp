@@ -314,7 +314,7 @@ namespace EditorPanels
         {
             ImGui::DragFloat3("Direction", &lightDirection.x, 0.01f, -1.0f, 1.0f);
             ImGui::ColorEdit3("Color", &lightColor.x);
-            ImGui::SliderFloat("Intensity", &lightIntensity, 0.0f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Intensity", &lightIntensity, 0.0f, 50.0f, "%.2f");
 
             if (ImGui::Button("Reset Direct Light"))
             {
@@ -380,8 +380,59 @@ namespace EditorPanels
             ambientColor = glm::vec3(1.0f);
             ambientIntensity = 0.0f;
 
+            toneMappingEnabled = true;
+            gammaEnabled = true;
+            postExposure = 1.0f;
+
             onResetEnvironment();
         }
+    }
+
+    void EditorPanels::drawUboInspector(const UniformBufferObject& ubo)
+    {
+        if (!ImGui::CollapsingHeader("UBO Inspector"))
+            return;
+
+        ImGui::Text("Camera Position: %.2f %.2f %.2f",
+            ubo.cameraPosition.x,
+            ubo.cameraPosition.y,
+            ubo.cameraPosition.z);
+
+        ImGui::Text("Light Dir: %.2f %.2f %.2f",
+            ubo.lightDirection.x,
+            ubo.lightDirection.y,
+            ubo.lightDirection.z);
+
+        ImGui::Text("Light Color: %.2f %.2f %.2f",
+            ubo.lightColor.x,
+            ubo.lightColor.y,
+            ubo.lightColor.z);
+
+        ImGui::Text("Ambient: %.2f %.2f %.2f",
+            ubo.ambientColor.x,
+            ubo.ambientColor.y,
+            ubo.ambientColor.z);
+
+        ImGui::Separator();
+
+        ImGui::Text("IBL:");
+        ImGui::Text("  Intensity: %.2f", ubo.environmentParams0.z);
+        ImGui::Text("  Diffuse: %.2f", ubo.environmentParams1.x);
+        ImGui::Text("  Specular: %.2f", ubo.environmentParams1.y);
+        ImGui::Text("  Enabled: %s", ubo.environmentParams1.w > 0.5f ? "Yes" : "No");
+
+        ImGui::Separator();
+
+        ImGui::Text("Skybox:");
+        ImGui::Text("  Exposure: %.2f", ubo.environmentParams0.x);
+        ImGui::Text("  LOD: %.2f", ubo.environmentParams0.y);
+
+        ImGui::Separator();
+
+        ImGui::Text("Post:");
+        ImGui::Text("  Exposure: %.2f", ubo.postProcessParams.x);
+        ImGui::Text("  ToneMap: %s", ubo.postProcessParams.y > 0.5f ? "On" : "Off");
+        ImGui::Text("  Gamma: %s", ubo.postProcessParams.z > 0.5f ? "On" : "Off");
     }
     
     void drawCameraPanel(

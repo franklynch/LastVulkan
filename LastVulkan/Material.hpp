@@ -19,15 +19,21 @@ struct MaterialImageWrite
 class Material
 {
 public:
-    explicit Material(Texture2D& texture);
+
+
+    explicit Material(
+        Texture2D& baseColorTexture,
+        Texture2D* defaultNormal,
+        Texture2D* defaultMetallicRoughness
+    );
 
     const Texture2D& getTexture() const { return texture; }
 
     const Texture2D* getNormalTexture() const { return normalTexture; }
-    void setNormalTexture(Texture2D* value) { normalTexture = value; }
+    void setNormalTexture(Texture2D* texture, bool provided = true);
 
     const Texture2D* getMetallicRoughnessTexture() const { return metallicRoughnessTexture; }
-    void setMetallicRoughnessTexture(Texture2D* value) { metallicRoughnessTexture = value; }
+    void setMetallicRoughnessTexture(Texture2D* texture, bool provided = true);
 
     float getNormalScale() const { return normalScale; }
     void setNormalScale(float value) { normalScale = value; }
@@ -71,6 +77,9 @@ public:
     float getAlphaCutoff() const { return alphaCutoff; }
     void setAlphaCutoff(float value) { alphaCutoff = value; }
 
+    bool hasProvidedNormalTexture() const { return normalTextureProvided; }
+    bool hasProvidedMetallicRoughnessTexture() const { return metallicRoughnessTextureProvided; }
+
 private:
     Texture2D& texture;
     Texture2D* normalTexture = nullptr;
@@ -86,4 +95,7 @@ private:
 
     std::string alphaMode = "OPAQUE";
     float alphaCutoff = 0.5f;
+
+    bool normalTextureProvided = false;
+    bool metallicRoughnessTextureProvided = false;
 };

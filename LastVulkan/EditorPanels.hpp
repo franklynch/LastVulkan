@@ -12,6 +12,9 @@
 #include "EditorUiState.hpp"
 #include "MeshData.hpp"
 
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+
 namespace EditorPanels
 {
       
@@ -153,6 +156,8 @@ namespace EditorPanels
         int selectedMaterialIndex);
 
     void drawDebugPanel(EditorUiState& uiState, bool wireframeSupported);
+
+    void drawUboInspector(const UniformBufferObject& ubo);
 
     
 }

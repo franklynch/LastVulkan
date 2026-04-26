@@ -2,6 +2,9 @@
 
 #include <cstdio>
 #include <string>
+#include <functional>
+
+#include <glm/gtc/type_ptr.hpp>
 
 #include "imgui.h"
 
@@ -229,7 +232,7 @@ namespace EditorPanels
         }
 
 
-        ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
+    /*    ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
         ImGui::Text("Material index: %d", selectedMaterialIndex);
 
         ImGui::Text("Material name: %s",
@@ -246,7 +249,7 @@ namespace EditorPanels
         ImGui::Text("Alpha mode: %s", selectedMaterial->getAlphaMode().c_str());
         ImGui::Text("Alpha cutoff: %.3f", selectedMaterial->getAlphaCutoff());
 
-      
+      */
 
         float normalScale = selectedMaterial->getNormalScale();
         if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 2.0f))
@@ -275,6 +278,109 @@ namespace EditorPanels
         else
         {
             ImGui::TextUnformatted("No texture bound.");
+        }
+    }
+
+    void EditorPanels::drawLookDevPanel(
+        glm::vec3& lightDirection,
+        glm::vec3& lightColor,
+        float& lightIntensity,
+        glm::vec3& ambientColor,
+        float& ambientIntensity,
+
+        bool& showSkybox,
+        bool& enableIBL,
+        bool& debugReflectionOnly,
+        float& skyboxExposure,
+        float& skyboxLod,
+        float& iblIntensity,
+        float& diffuseIBLIntensity,
+        float& specularIBLIntensity,
+
+        bool& toneMappingEnabled,
+        bool& gammaEnabled,
+        float& postExposure,
+
+        float& environmentRotationDegrees,
+        bool& rotateSkybox,
+        bool& rotateIBLLighting,
+
+        const std::function<void()>& onResetEnvironment)
+    {
+        if (!ImGui::CollapsingHeader("Look Dev / Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+            return;
+
+        if (ImGui::TreeNodeEx("Direct Light", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::DragFloat3("Direction", &lightDirection.x, 0.01f, -1.0f, 1.0f);
+            ImGui::ColorEdit3("Color", &lightColor.x);
+            ImGui::SliderFloat("Intensity", &lightIntensity, 0.0f, 10.0f, "%.2f");
+
+            if (ImGui::Button("Reset Direct Light"))
+            {
+                lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+                lightColor = glm::vec3(1.0f);
+                lightIntensity = 3.0f;
+            }
+
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("Ambient Fill", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::ColorEdit3("Ambient Tint", &ambientColor.x);
+            ImGui::SliderFloat("Ambient Intensity", &ambientIntensity, 0.0f, 0.25f, "%.3f");
+
+            if (ImGui::Button("Reset Ambient"))
+            {
+                ambientColor = glm::vec3(1.0f);
+                ambientIntensity = 0.0f;
+            }
+
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("Environment / IBL", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Show Skybox", &showSkybox);
+            ImGui::Checkbox("Enable IBL", &enableIBL);
+            ImGui::Checkbox("Reflection Debug", &debugReflectionOnly);
+
+            ImGui::SliderFloat("Skybox Exposure", &skyboxExposure, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Skybox LOD", &skyboxLod, 0.0f, 6.0f, "%.2f");
+
+            ImGui::SliderFloat("IBL Intensity", &iblIntensity, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Diffuse IBL", &diffuseIBLIntensity, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Specular IBL", &specularIBLIntensity, 0.0f, 4.0f, "%.2f");
+
+            ImGui::SliderFloat("Environment Rotation", &environmentRotationDegrees, -180.0f, 180.0f, "%.1f deg");
+            ImGui::Checkbox("Rotate Skybox", &rotateSkybox);
+            ImGui::Checkbox("Rotate IBL Lighting", &rotateIBLLighting);
+
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("Post Process", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Tone Mapping", &toneMappingEnabled);
+            ImGui::Checkbox("Gamma Correction", &gammaEnabled);
+            ImGui::SliderFloat("Post Exposure", &postExposure, 0.0f, 4.0f, "%.2f");
+
+            ImGui::TreePop();
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Reset Look Dev"))
+        {
+            lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+            lightColor = glm::vec3(1.0f);
+            lightIntensity = 3.0f;
+
+            ambientColor = glm::vec3(1.0f);
+            ambientIntensity = 0.0f;
+
+            onResetEnvironment();
         }
     }
     
@@ -327,7 +433,7 @@ namespace EditorPanels
         }
     }
 
-    void EditorPanels::drawLightingPanel(
+   /*  void EditorPanels::drawLightingPanel(
         glm::vec3& lightDirection,  
         glm::vec3& lightColor,
         glm::vec3& ambientColor)
@@ -341,6 +447,12 @@ namespace EditorPanels
         ImGui::ColorEdit3("Light Color", &lightColor.x);
         ImGui::ColorEdit3("Ambient Color", &ambientColor.x);
 
+        ImGui::ColorEdit3("Light Color", &lightColor.x);
+        ImGui::SliderFloat("Light Intensity", &lightIntensity, 0.0f, 10.0f, "%.2f");
+
+        ImGui::ColorEdit3("Ambient Tint", &ambientColor.x);
+        ImGui::SliderFloat("Ambient Intensity", &ambientIntensity, 0.0f, 0.25f, "%.3f");
+
         if (ImGui::Button("Reset Lighting"))
         {
             lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
@@ -348,6 +460,28 @@ namespace EditorPanels
             ambientColor = glm::vec3(0.15f, 0.15f, 0.15f);
         }
     }
+
+    void EditorPanels::drawLightingPanel(
+        glm::vec3& lightDirection,
+        glm::vec3& lightColor,
+        float& lightIntensity,
+        glm::vec3& ambientColor,
+        float& ambientIntensity)
+    {
+        if (!ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            return;
+        }
+
+        ImGui::DragFloat3("Light Direction", &lightDirection.x, 0.01f);
+        ImGui::ColorEdit3("Light Color", &lightColor.x);
+        ImGui::SliderFloat("Light Intensity", &lightIntensity, 0.0f, 10.0f, "%.2f");
+
+        ImGui::ColorEdit3("Ambient Tint", &ambientColor.x);
+        ImGui::SliderFloat("Ambient Intensity", &ambientIntensity, 0.0f, 0.25f, "%.3f");
+    }
+    */
+
 
     void EditorPanels::drawEnvironmentPanel(
         bool& showSkybox,
@@ -357,7 +491,13 @@ namespace EditorPanels
         float& skyboxLod,
         float& iblIntensity,
         float& diffuseIBLIntensity,
-        float& specularIBLIntensity)
+        float& specularIBLIntensity,
+        float& environmentRotationDegrees,
+        bool& rotateSkybox,
+        bool& rotateIBLLighting,
+        const std::function<void()>& onResetEnvironment
+    )
+
     {
         if (ImGui::CollapsingHeader("Environment / IBL", ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -373,6 +513,32 @@ namespace EditorPanels
             ImGui::SliderFloat("IBL Intensity", &iblIntensity, 0.0f, 4.0f, "%.2f");
             ImGui::SliderFloat("Diffuse IBL", &diffuseIBLIntensity, 0.0f, 4.0f, "%.2f");
             ImGui::SliderFloat("Specular IBL", &specularIBLIntensity, 0.0f, 4.0f, "%.2f");
+
+            ImGui::Separator();
+
+            ImGui::SliderFloat("Environment Rotation", &environmentRotationDegrees, -180.0f, 180.0f, "%.1f deg");
+            ImGui::Checkbox("Rotate Skybox", &rotateSkybox);
+            ImGui::Checkbox("Rotate IBL Lighting", &rotateIBLLighting);
+
+            if (ImGui::Button("Reset Environment"))
+            {
+                onResetEnvironment();
+            }
+
+            
+        }
+    }
+
+    void EditorPanels::drawPostProcessPanel(
+        bool& toneMappingEnabled,
+        bool& gammaEnabled,
+        float& postExposure)
+    {
+        if (ImGui::CollapsingHeader("Post Process", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Tone Mapping", &toneMappingEnabled);
+            ImGui::Checkbox("Gamma Correction", &gammaEnabled);
+            ImGui::SliderFloat("Post Exposure", &postExposure, 0.0f, 4.0f, "%.2f");
         }
     }
 
