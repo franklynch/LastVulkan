@@ -1,34 +1,54 @@
 #include "ShaderUtils.hpp"
+
 #include <fstream>
 #include <stdexcept>
 
-std::vector<char> readFile(const std::string& filename)
+namespace ShaderUtils
 {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
-    if (!file.is_open())
+    std::vector<uint32_t> readSpirvFile(const std::string& filename)
     {
-        throw std::runtime_error("failed to open file: " + filename);
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+        if (!file.is_open())
+        {
+            throw std::runtime_error("failed to open SPIR-V file: " + filename);
+        }
+
+        const std::streamsize fileSize = file.tellg();
+
+        if (fileSize <= 0 || fileSize % sizeof(uint32_t) != 0)
+        {
+            throw std::runtime_error("invalid SPIR-V file size: " + filename);
+        }
+
+        std::vector<uint32_t> buffer(
+            static_cast<size_t>(fileSize) / sizeof(uint32_t));
+
+        file.seekg(0);
+        file.read(
+            reinterpret_cast<char*>(buffer.data()),
+            fileSize);
+
+        if (!file)
+        {
+            throw std::runtime_error("failed to read SPIR-V file: " + filename);
+        }
+
+        return buffer;
     }
 
-    size_t fileSize = (size_t)file.tellg();
-    std::vector<char> buffer(fileSize);
+    vk::raii::ShaderModule createShaderModule(
+        const vk::raii::Device& device,
+        const std::string& filename)
+    {
+        const std::vector<uint32_t> code = readSpirvFile(filename);
 
-    file.seekg(0);
-    file.read(buffer.data(), fileSize);
+        vk::ShaderModuleCreateInfo createInfo{};
+        createInfo
+            .setCodeSize(code.size() * sizeof(uint32_t))
+            .setPCode(code.data());
 
-    file.close();
-    return buffer;
-}
-
-vk::raii::ShaderModule createShaderModule(
-    const vk::raii::Device& device,
-    const std::vector<char>& code)
-{
-    vk::ShaderModuleCreateInfo createInfo{};
-    createInfo
-        .setCodeSize(code.size())
-        .setPCode(reinterpret_cast<const uint32_t*>(code.data()));
-
-    return vk::raii::ShaderModule(device, createInfo);
+        return vk::raii::ShaderModule(device, createInfo);
+    }
 }

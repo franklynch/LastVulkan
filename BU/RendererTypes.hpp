@@ -21,7 +21,7 @@ inline constexpr uint32_t WIDTH = 800;
 inline constexpr uint32_t HEIGHT = 600;
 
 inline const std::string MODEL_PATH = "models/viking_room.obj";
-inline const std::string TEXTURE_PATH = "models/BoxTextured/glTF/CesiumLogoFlat.png";
+
 
 
 
@@ -116,7 +116,7 @@ struct UniformBufferObject
     glm::vec4 environmentParams0; // x=skyboxExposure, y=skyboxLod, z=iblIntensity, w=showSkybox
     glm::vec4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
     glm::vec4 postProcessParams;        // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=environmentRotation
-    glm::vec4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
+    glm::vec4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z=debugSkyboxFaces, /w unused
 
     glm::ivec4 debugParams{ 0, 0, 0, 0 };
     glm::vec4 specularDebugParams{ 0.0f };

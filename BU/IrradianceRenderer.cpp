@@ -160,10 +160,10 @@ void IrradianceRenderer::createPipeline()
     auto& device = vkContext.getDevice();
 
     vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(vkContext.getDevice(), readFile("shaders/irradiance_vert.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/irradiance_vert.spv");
 
     vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(vkContext.getDevice(), readFile("shaders/irradiance_frag.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/irradiance_frag.spv");
 
     vk::PipelineShaderStageCreateInfo vertStage{};
     vertStage

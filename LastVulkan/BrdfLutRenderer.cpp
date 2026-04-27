@@ -95,14 +95,10 @@ void BrdfLutRenderer::createPipeline(EnvironmentResources& environment)
     auto& device = vkContext.getDevice();
 
     vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(
-            vkContext.getDevice(),
-            readFile("shaders/brdf_lut_vert.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/brdf_lut_vert.spv");
 
     vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(
-            vkContext.getDevice(),
-            readFile("shaders/brdf_lut_frag.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/brdf_lut_frag.spv");
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo

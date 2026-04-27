@@ -291,6 +291,7 @@ namespace EditorPanels
         bool& showSkybox,
         bool& enableIBL,
         bool& debugReflectionOnly,
+		bool& debugSkyboxFaces,
         float& skyboxExposure,
         float& skyboxLod,
         float& iblIntensity,
@@ -331,7 +332,8 @@ namespace EditorPanels
                 "Direct Only",
                 "Diffuse IBL Only",
                 "Specular IBL Only",
-                "Reflection Vector"
+                "Reflection Vector",
+                "Reflection Face"
             };
 
             ImGui::Combo(
@@ -418,6 +420,7 @@ namespace EditorPanels
             ImGui::Checkbox("Show Skybox", &showSkybox);
             ImGui::Checkbox("Enable IBL", &enableIBL);
             ImGui::Checkbox("Reflection Debug", &debugReflectionOnly);
+            ImGui::Checkbox("Debug Skybox Faces", &debugSkyboxFaces);
 
             ImGui::SliderFloat("Skybox Exposure", &skyboxExposure, 0.0f, 4.0f, "%.2f");
             ImGui::SliderFloat("Skybox LOD", &skyboxLod, 0.0f, 6.0f, "%.2f");
@@ -429,6 +432,8 @@ namespace EditorPanels
             ImGui::SliderFloat("Environment Rotation", &environmentRotationDegrees, -180.0f, 180.0f, "%.1f deg");
             ImGui::Checkbox("Rotate Skybox", &rotateSkybox);
             ImGui::Checkbox("Rotate IBL Lighting", &rotateIBLLighting);
+
+            ImGui::Text("Renderer env rotation deg: %.3f", environmentRotationDegrees);
 
             ImGui::TreePop();
         }
@@ -553,6 +558,13 @@ namespace EditorPanels
 
         ImGui::Text("Debug:");
         ImGui::Text("  View Mode: %d", ubo.debugParams.x);
+
+        ImGui::Separator();
+        ImGui::Text("Environment rotation rad: %.3f", ubo.postProcessParams.w);
+        ImGui::Text("Rotate skybox: %.1f", ubo.environmentControlParams.x);
+        ImGui::Text("Rotate IBL lighting: %.1f", ubo.environmentControlParams.y);
+        ImGui::Text("Debug skybox faces: %.1f", ubo.environmentControlParams.z);
+
     }
     
     void drawCameraPanel(
@@ -602,6 +614,8 @@ namespace EditorPanels
             mousePanSensitivity = 0.005f;
             mouseZoomSensitivity = 0.5f;
         }
+
+
     }
 
    /*  void EditorPanels::drawLightingPanel(
@@ -839,10 +853,14 @@ namespace EditorPanels
             return;
         }
 
+        ImGui::Separator();
+
         ImGui::Text("Scene renderables: %u", static_cast<uint32_t>(scene.size()));
         ImGui::Text("GPU meshes: %u", static_cast<uint32_t>(gpuMeshCount));
         ImGui::Text("Textures: %u", static_cast<uint32_t>(textureCount));
         ImGui::Text("Materials: %u", static_cast<uint32_t>(materialCount));
+
+       
 
         const Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
@@ -897,6 +915,7 @@ namespace EditorPanels
         }
 
         ImGui::Checkbox("Wireframe", &uiState.wireframeRequested);
+        
 
         if (!wireframeSupported)
         {

@@ -1,11 +1,17 @@
 #pragma once
 
 #include <vulkan/vulkan_raii.hpp>
-#include <vector>
+
+#include <cstdint>
 #include <string>
+#include <vector>
 
-std::vector<char> readFile(const std::string& filename);
+namespace ShaderUtils
+{
 
-vk::raii::ShaderModule createShaderModule(
-    const vk::raii::Device& device,
-    const std::vector<char>& code);
+    std::vector<uint32_t> readSpirvFile(const std::string& filename);
+
+    vk::raii::ShaderModule createShaderModule(
+        const vk::raii::Device& device,
+        const std::string& filename);
+}

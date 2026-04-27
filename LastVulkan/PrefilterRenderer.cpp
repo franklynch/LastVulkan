@@ -164,10 +164,11 @@ void PrefilterRenderer::createPipeline()
     auto& device = vkContext.getDevice();
 
     vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(vkContext.getDevice(), readFile("shaders/prefilter_vert.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/prefilter_vert.spv");
 
     vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(vkContext.getDevice(), readFile("shaders/prefilter_frag.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/prefilter_frag.spv");
+
 
     vk::PipelineShaderStageCreateInfo vertStage{};
     vertStage

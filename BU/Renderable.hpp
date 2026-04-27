@@ -26,9 +26,20 @@ public:
     [[nodiscard]] const std::string& getName() const { return name; }
     void setName(const std::string& value) { name = value; }
 
+    uint32_t getMaterialIndex() const
+    {
+        return materialIndex;
+    }
+
+    void setMaterialIndex(uint32_t index)
+    {
+        materialIndex = index;
+    }
+
 private:
     std::reference_wrapper<GpuMesh> mesh;
     std::reference_wrapper<Material> material;
     Transform transform;
     std::string name;
+    uint32_t materialIndex = 0;
 };

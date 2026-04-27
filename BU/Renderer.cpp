@@ -23,6 +23,7 @@
 #include "EditorPanels.hpp"
 #include "GltfLoader.hpp"
 #include "DdsUtils.hpp"
+#include "ShaderUtils.hpp"
 
 
 
@@ -152,14 +153,27 @@ void Renderer::init()
 
 
 
-    // Slot 0 = default fallback texture
+
+
+    // Slot 0 = default fallback base-color texture: 1x1 white, sRGB
+    const unsigned char fallbackWhitePixel[4] = {
+        255, 255, 255, 255
+    };
+
     textures.push_back(std::make_unique<Texture2D>(
         vkContext,
         bufferUtils,
         imageUtils,
-        TEXTURE_PATH,
+        fallbackWhitePixel,
+        1,
+        1,
+        4,
+        "<fallback-white-base-color>",
         vk::Format::eR8G8B8A8Srgb
     ));
+    
+    
+    
 
     camera.setTarget({ 0.0f, 0.0f, 0.0f });
     camera.setOrbit(cameraRadius, cameraYaw, cameraPitch);
@@ -217,6 +231,16 @@ void Renderer::init()
         {
             imageUsedAsMR[importedMaterial.metallicRoughnessImageIndex] = true;
         }
+
+        std::cout
+            << "Material: " << importedMaterial.name
+            << ", baseColorImageIndex = " << importedMaterial.baseColorImageIndex
+            << ", baseColorFactor = "
+            << importedMaterial.baseColorFactor.r << ", "
+            << importedMaterial.baseColorFactor.g << ", "
+            << importedMaterial.baseColorFactor.b << ", "
+            << importedMaterial.baseColorFactor.a
+            << std::endl;
     }
 
     // ------------------------------------------------------------
@@ -446,6 +470,8 @@ void Renderer::init()
     std::cout << "Loaded metallicRoughness textures: "
         << metallicRoughnessTextures.size() << std::endl;
 
+
+
     // ------------------------------------------------------------
     // 6. Create renderables
     // ------------------------------------------------------------
@@ -490,11 +516,14 @@ void Renderer::init()
         const int importedMaterialIndex =
             imported.renderables[i].materialIndex;
 
-        Material& assignedMaterial =
+        const int rendererMaterialIndex =
             importedMaterialIndex >= 0 &&
             importedMaterialIndex + 1 < static_cast<int>(materials.size())
-            ? *materials[importedMaterialIndex + 1]
-            : getDefaultMaterial();
+            ? importedMaterialIndex + 1
+            : 0;
+
+        // Use the computed index
+        Material& assignedMaterial = *materials[rendererMaterialIndex];
 
         Renderable& renderable = scene.addRenderable(
             *gpuMeshes.back(),
@@ -502,22 +531,12 @@ void Renderer::init()
             "glTF " + std::to_string(i)
         );
 
-
+        renderable.setMaterialIndex(static_cast<uint32_t>(rendererMaterialIndex));
 
         glm::mat4 originalMatrix =
             imported.renderables[i].transform.toMatrix();
 
-        glm::mat4 orientationFix =
-            glm::rotate(
-                glm::mat4(1.0f),
-                glm::radians(-90.0f),
-                glm::vec3(1.0f, 0.0f, 0.0f)
-            );
-
-        glm::mat4 frontFix =
-            glm::rotate(glm::mat4(1.0f),
-                glm::radians(180.0f),
-                glm::vec3(0.0f, 1.0f, 0.0f));
+        
 
         glm::mat4 finalMatrix =
             modelRootMatrix * originalMatrix;
@@ -527,8 +546,8 @@ void Renderer::init()
         t.matrixOverride = finalMatrix;
 
         std::cout << "glTF primitive " << i
-            << " material index: "
-            << imported.renderables[i].materialIndex
+            << " glTF material index: " << importedMaterialIndex
+            << ", renderer material index: " << rendererMaterialIndex
             << std::endl;
     }
 
@@ -555,7 +574,7 @@ void Renderer::init()
         bufferUtils,
         imageUtils,
         "assets/ibl/brdf_lut.png",
-        vk::Format::eR8G8B8A8Srgb
+        vk::Format::eR8G8B8A8Unorm
     );
 
     createEnvironmentCubemap({
@@ -849,10 +868,10 @@ void Renderer::createGraphicsPipeline()
     auto& device = vkContext.getDevice();
 
     vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(readFile("shaders/vert.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/vert.spv");
 
     vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(readFile("shaders/frag.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/frag.spv");
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo
@@ -1434,7 +1453,7 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     ubo.environmentControlParams = glm::vec4(
         rotateSkybox ? 1.0f : 0.0f,
         rotateIBLLighting ? 1.0f : 0.0f,
-        0.0f,
+        debugSkyboxFaces ? 1.0f : 0.0f,
         0.0f
     );
 
@@ -1750,21 +1769,9 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             continue;
         }
 
-        auto materialIt = std::find_if(
-            materials.begin(),
-            materials.end(),
-            [&](const std::unique_ptr<Material>& candidate)
-            {
-                return candidate.get() == &renderableMaterial;
-            });
-
-        if (materialIt == materials.end())
-        {
-            throw std::runtime_error("renderable material not found in renderer materials");
-        }
-
-        size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
-
+        uint32_t materialIndex = renderable.getMaterialIndex();
+        assert(materialIndex < materials.size());
+        
         commandBuffer.bindVertexBuffers(
             0,
             *renderable.getMesh().getVertexBuffer(),
@@ -1914,20 +1921,8 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     {
         Material& renderableMaterial = renderable->getMaterial();
 
-        auto materialIt = std::find_if(
-            materials.begin(),
-            materials.end(),
-            [&](const std::unique_ptr<Material>& candidate)
-            {
-                return candidate.get() == &renderableMaterial;
-            });
-
-        if (materialIt == materials.end())
-        {
-            throw std::runtime_error("renderable material not found in renderer materials");
-        }
-
-        size_t materialIndex = static_cast<size_t>(std::distance(materials.begin(), materialIt));
+        uint32_t materialIndex = renderable->getMaterialIndex();
+        assert(materialIndex < materials.size());
 
         commandBuffer.bindVertexBuffers(
             0,
@@ -2657,33 +2652,6 @@ vk::Extent2D Renderer::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabi
         std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height) };
 }
 
-[[nodiscard]] vk::raii::ShaderModule Renderer::createShaderModule(const std::vector<char>& code) const
-{
-    vk::ShaderModuleCreateInfo createInfo{};
-    createInfo
-        .setCodeSize(code.size())
-        .setPCode(reinterpret_cast<const uint32_t*>(code.data()));
-
-
-    vk::raii::ShaderModule     shaderModule{ vkContext.getDevice(), createInfo };
-
-    return shaderModule;
-}
-
-std::vector<char> Renderer::readFile(const std::string& filename)
-{
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open())
-    {
-        throw std::runtime_error("failed to open file: " + filename);
-    }
-
-    std::vector<char> buffer(static_cast<size_t>(file.tellg()));
-    file.seekg(0, std::ios::beg);
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    return buffer;
-}
-
 void Renderer::updateCameraControls()
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -2728,16 +2696,7 @@ void Renderer::updateCameraControls()
 
 
 
-void Renderer::focusSelectedRenderable()
-{
-    Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
-    if (!selected)
-    {
-        return;
-    }
 
-    camera.setTarget(selected->getTransform().position);
-}
 
 Material* Renderer::getSelectedRenderableMaterial()
 {
@@ -2751,6 +2710,11 @@ Material* Renderer::getSelectedRenderableMaterial()
 }
 
 
+glm::vec3 Renderer::getRenderableWorldPosition(const Renderable& renderable) const
+{
+    return glm::vec3(renderable.getTransform().toMatrix()[3]);
+}
+
 glm::vec3 Renderer::computeSceneCenter() const
 {
     if (scene.empty())
@@ -2762,11 +2726,24 @@ glm::vec3 Renderer::computeSceneCenter() const
 
     for (const auto& renderable : scene.getRenderables())
     {
-        sum += renderable.getTransform().position;
+        sum += getRenderableWorldPosition(renderable);
     }
 
     return sum / static_cast<float>(scene.size());
 }
+
+void Renderer::focusSelectedRenderable()
+{
+    Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
+
+    if (!selected)
+    {
+        return;
+    }
+
+    camera.setTarget(getRenderableWorldPosition(*selected));
+}
+
 
 int Renderer::getMaterialIndex(const Material& material) const
 {
@@ -3312,10 +3289,10 @@ void Renderer::createSkyboxPipeline()
     auto& device = vkContext.getDevice();
 
     vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(readFile("shaders/skybox_vert.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/skybox_vert.spv");
 
     vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(readFile("shaders/skybox_frag.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/skybox_frag.spv");
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo
@@ -3515,6 +3492,8 @@ void Renderer::resetIblEnergyCalibration()
     applyIblCalibrationPreset(defaultIblCalibrationPreset);
 }
 
+
+
 void Renderer::initImGui()
 {
     auto& device = vkContext.getDevice();
@@ -3662,6 +3641,8 @@ void Renderer::buildImGui()
             ? static_cast<float>(prefilterRenderer->getDebugRuntimePrefilteredMipLevels() - 1)
             : 0.0f;
 
+        
+
         EditorPanels::drawLookDevPanel(
             lightDirection,
             lightColor,
@@ -3673,6 +3654,7 @@ void Renderer::buildImGui()
             showSkybox,
             enableIBL,
             debugReflectionOnly,
+            debugSkyboxFaces,
             skyboxExposure,
             skyboxLod,
             iblIntensity,

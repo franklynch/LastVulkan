@@ -71,6 +71,7 @@ namespace EditorPanels
         bool& showSkybox,
         bool& enableIBL,
         bool& debugReflectionOnly,
+        bool& debugSkyboxFaces,
         float& skyboxExposure,
         float& skyboxLod,
         float& iblIntensity,

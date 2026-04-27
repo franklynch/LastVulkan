@@ -139,8 +139,8 @@ private:
     static vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const& availablePresentModes);
     vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabilities);
 
-    [[nodiscard]] vk::raii::ShaderModule createShaderModule(const std::vector<char>& code) const;
-    static std::vector<char> readFile(const std::string& filename);
+    
+    
 
     Texture2D& getDefaultTexture();
     Material& getDefaultMaterial();
@@ -213,6 +213,8 @@ private:
 
     Material* getSelectedRenderableMaterial();
     int getMaterialIndex(const Material& material) const;
+
+
     bool isWireframeSupported() const;
     glm::vec3 computeSceneCenter() const;
 
@@ -269,6 +271,7 @@ private:
     std::vector<std::unique_ptr<Material>> materials;
 
 
+    glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;
 
     Scene scene;
 
@@ -390,7 +393,7 @@ private:
     bool gammaEnabled = true;
     float postExposure = 1.0f;
 
-
+    bool debugSkyboxFaces = false;
 
     vk::raii::Pipeline transparentPipeline = nullptr;
     vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;

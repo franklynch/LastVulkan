@@ -83,7 +83,7 @@ float4 main(SkyboxVSOutput input) : SV_Target
     }
 
     float3 color = environmentTexture.SampleLevel(dir, lod).rgb;
-    
+
     float postExposure = ubo.postProcessParams.x;
     bool toneMappingEnabled = (ubo.postProcessParams.y > 0.5);
     bool gammaEnabled = (ubo.postProcessParams.z > 0.5);
@@ -102,5 +102,4 @@ float4 main(SkyboxVSOutput input) : SV_Target
     }
 
     return float4(color, 1.0);
-
-    }
+}

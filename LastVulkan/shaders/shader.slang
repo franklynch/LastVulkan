@@ -112,6 +112,7 @@ static const int DEBUG_DIRECT_ONLY = 5;
 static const int DEBUG_DIFFUSE_IBL_ONLY = 6;
 static const int DEBUG_SPECULAR_IBL_ONLY = 7;
 static const int DEBUG_REFLECTION_VECTOR = 8;
+static const int DEBUG_REFLECTION_FACE = 9;
 
 float3 FresnelSchlick(float cosTheta, float3 F0)
 {
@@ -182,6 +183,30 @@ float3 ToEnvironmentDirection(float3 dir)
 {
     dir = float3(dir.x, dir.z, dir.y);
     return normalize(dir);
+}
+
+float4 DebugCubemapFaceColor(float3 dir, float alpha)
+{
+    dir = normalize(dir);
+    float3 a = abs(dir);
+
+    if (a.x > a.y && a.x > a.z)
+    {
+        return dir.x > 0.0
+            ? float4(1, 0, 0, alpha)   // +X red
+            : float4(0, 1, 1, alpha);  // -X cyan
+    }
+
+    if (a.y > a.x && a.y > a.z)
+    {
+        return dir.y > 0.0
+            ? float4(0, 1, 0, alpha)   // +Y green
+            : float4(1, 0, 1, alpha);  // -Y magenta
+    }
+
+    return dir.z > 0.0
+        ? float4(0, 0, 1, alpha)       // +Z blue
+        : float4(1, 1, 0, alpha);      // -Z yellow
 }
 
 [shader("fragment")]
@@ -389,6 +414,13 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     if (debugViewMode == DEBUG_REFLECTION_VECTOR)
     {
         float3 debugR = reflect(-V, N);
+        debugR = ToEnvironmentDirection(debugR);
+
+        if (rotateIBLLighting)
+        {
+            debugR = RotateEnvironmentY(debugR, environmentRotation);
+        }
+
         return float4(normalize(debugR) * 0.5 + 0.5, outputAlpha);
     }
 

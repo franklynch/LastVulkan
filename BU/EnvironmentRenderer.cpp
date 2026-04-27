@@ -161,10 +161,10 @@ void EnvironmentRenderer::createPipeline()
     auto& device = vkContext.getDevice();
 
     vk::raii::ShaderModule vertShaderModule =
-        createShaderModule(vkContext.getDevice(), readFile("shaders/equirect_to_cube_vert.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/equirect_to_cube_vert.spv");
 
     vk::raii::ShaderModule fragShaderModule =
-        createShaderModule(vkContext.getDevice(), readFile("shaders/equirect_to_cube_frag.spv"));
+        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/equirect_to_cube_frag.spv");
 
     vk::PipelineShaderStageCreateInfo vertStage{};
     vertStage
