@@ -22,6 +22,9 @@ struct UniformBuffer
     float4 environmentParams1;       // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
     float4 postProcessParams;        // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=environmentRotation
     float4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
+    int4 debugParams;
+    float4 specularDebugParams;
+    float4 specularCurveParams;
 };
 
 [[vk::binding(0, 0)]]
@@ -99,6 +102,16 @@ VSOutput vertMain(VSInput input)
 }
 
 static const float PI = 3.14159265359;
+
+static const int DEBUG_FINAL = 0;
+static const int DEBUG_ALBEDO = 1;
+static const int DEBUG_NORMAL = 2;
+static const int DEBUG_ROUGHNESS = 3;
+static const int DEBUG_METALLIC = 4;
+static const int DEBUG_DIRECT_ONLY = 5;
+static const int DEBUG_DIFFUSE_IBL_ONLY = 6;
+static const int DEBUG_SPECULAR_IBL_ONLY = 7;
+static const int DEBUG_REFLECTION_VECTOR = 8;
 
 float3 FresnelSchlick(float cosTheta, float3 F0)
 {
@@ -296,8 +309,20 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
             R = RotateEnvironmentY(R, environmentRotation);
         }
 
-        float maxPrefilterMip = 6.0;
-        float prefilterLod = roughness * maxPrefilterMip;
+       float maxPrefilterMip = max(ubo.specularDebugParams.z, 0.0);
+        float roughnessMipScale = ubo.specularDebugParams.w;
+        float roughnessMipBias = ubo.specularCurveParams.x;
+
+        float prefilterLod =
+            roughness * maxPrefilterMip * roughnessMipScale
+            + roughnessMipBias;
+
+        if (ubo.specularDebugParams.x > 0.5)
+        {
+            prefilterLod = ubo.specularDebugParams.y;
+        }
+
+        prefilterLod = clamp(prefilterLod, 0.0, maxPrefilterMip);
 
         float3 prefiltered = prefilteredTexture.SampleLevel(R, prefilterLod).rgb;
         float2 brdf = brdfLutTexture.Sample(float2(NdotV, roughness)).rg;
@@ -313,6 +338,58 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         float3 iblSpecular = specularIBL * specularIBLIntensity;
 
         color += (iblDiffuse + iblSpecular) * iblIntensity;
+    }
+
+    int debugViewMode = ubo.debugParams.x;
+    float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
+
+    if (debugViewMode == DEBUG_ALBEDO)
+    {
+        return float4(baseColor.rgb, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_NORMAL)
+    {
+        return float4(normalize(N) * 0.5 + 0.5, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_ROUGHNESS)
+    {
+        return float4(roughness.xxx, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_METALLIC)
+    {
+        return float4(metallic.xxx, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_DIRECT_ONLY)
+    {
+        return float4(directLighting, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_DIFFUSE_IBL_ONLY)
+    {
+        float3 debugDiffuse = enableIBL
+            ? diffuseIBL * diffuseIBLIntensity * iblIntensity
+            : float3(0.0, 0.0, 0.0);
+
+        return float4(debugDiffuse, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_SPECULAR_IBL_ONLY)
+    {
+        float3 debugSpecular = enableIBL
+            ? specularIBL * specularIBLIntensity * iblIntensity
+            : float3(0.0, 0.0, 0.0);
+
+        return float4(debugSpecular, outputAlpha);
+    }
+
+    if (debugViewMode == DEBUG_REFLECTION_VECTOR)
+    {
+        float3 debugR = reflect(-V, N);
+        return float4(normalize(debugR) * 0.5 + 0.5, outputAlpha);
     }
 
     float postExposure = ubo.postProcessParams.x;
@@ -331,7 +408,7 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         color = ApplyGamma(color);
     }
 
-    float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
+    
 
     return float4(color, outputAlpha);
 }

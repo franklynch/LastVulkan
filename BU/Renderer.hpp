@@ -180,8 +180,8 @@ private:
 
 
     float cameraRadius = 3.0f;
-    float cameraYaw = 0.0f;
-    float cameraPitch = 0.5f;
+    float cameraYaw = glm::radians(270.0f);
+    float cameraPitch = glm::radians(85.0f); // or slightly less, e.g. 75–80
     float cameraFov = 45.0f;
     float cameraNear = 0.1f;
     float cameraFar = 10.0f;
@@ -198,6 +198,8 @@ private:
     glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
     glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+
+    UniformBufferObject lastUbo;
     
 
     glm::vec3 lightColor{ 1.0f };
@@ -319,18 +321,47 @@ private:
     void createFallbackBlackCube();
     void updateIBLDescriptorSet();
 
+    struct IblCalibrationPreset
+    {
+        float lightIntensity = 3.0f;
+        float skyboxExposure = 0.3f;
+        float iblIntensity = 1.0f;
+        float diffuseIBLIntensity = 0.2f;
+        float specularIBLIntensity = 1.2f;
+        float postExposure = 1.0f;
+    };
+
+    IblCalibrationPreset defaultIblCalibrationPreset{
+        .lightIntensity = 3.0f,
+        .skyboxExposure = 1.0f,
+        .iblIntensity = 1.0f,
+        .diffuseIBLIntensity = 1.0f,
+        .specularIBLIntensity = 1.0f,
+        .postExposure = 1.0f
+    };
+
+    void applyIblCalibrationPreset(const IblCalibrationPreset& preset);
+    void resetIblEnergyCalibration();
+
+    bool debugForceSpecularMip = false;
+    float debugSpecularMip = 0.0f;
+
+    float roughnessMipScale = 1.0f;
+    float roughnessMipBias = 0.0f;
+
+
     // --- Environment / IBL controls ---
     bool showSkybox = true;
     bool enableIBL = false;
     bool debugReflectionOnly = false;
-    float skyboxExposure = 1.0f;
+    float skyboxExposure = 0.3f;
     float skyboxLod = 0.0f;
     float iblIntensity = 1.0f;
     float environmentRotationDegrees = 0.0f;
     bool rotateSkybox = true;
     bool rotateIBLLighting = true;
-    float diffuseIBLIntensity = 1.0f;
-    float specularIBLIntensity = 1.0f;
+    float diffuseIBLIntensity = 0.2f;
+    float specularIBLIntensity = 1.2f;
 
     std::unique_ptr<Texture2D> brdfLutTexture;
 

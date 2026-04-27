@@ -3,6 +3,10 @@
 #include <string>
 #include "MeshData.hpp"
 
+#include "RendererTypes.hpp"
+
+#include <glm/glm.hpp>
+
 class ModelLoader
 {
 public:

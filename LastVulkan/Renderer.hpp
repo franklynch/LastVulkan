@@ -321,18 +321,47 @@ private:
     void createFallbackBlackCube();
     void updateIBLDescriptorSet();
 
+    struct IblCalibrationPreset
+    {
+        float lightIntensity = 3.0f;
+        float skyboxExposure = 0.3f;
+        float iblIntensity = 1.0f;
+        float diffuseIBLIntensity = 0.2f;
+        float specularIBLIntensity = 1.2f;
+        float postExposure = 1.0f;
+    };
+
+    IblCalibrationPreset defaultIblCalibrationPreset{
+        .lightIntensity = 3.0f,
+        .skyboxExposure = 1.0f,
+        .iblIntensity = 1.0f,
+        .diffuseIBLIntensity = 1.0f,
+        .specularIBLIntensity = 1.0f,
+        .postExposure = 1.0f
+    };
+
+    void applyIblCalibrationPreset(const IblCalibrationPreset& preset);
+    void resetIblEnergyCalibration();
+
+    bool debugForceSpecularMip = false;
+    float debugSpecularMip = 0.0f;
+
+    float roughnessMipScale = 1.0f;
+    float roughnessMipBias = 0.0f;
+
+
     // --- Environment / IBL controls ---
     bool showSkybox = true;
     bool enableIBL = false;
     bool debugReflectionOnly = false;
-    float skyboxExposure = 1.0f;
+    float skyboxExposure = 0.3f;
     float skyboxLod = 0.0f;
     float iblIntensity = 1.0f;
     float environmentRotationDegrees = 0.0f;
     bool rotateSkybox = true;
     bool rotateIBLLighting = true;
-    float diffuseIBLIntensity = 1.0f;
-    float specularIBLIntensity = 1.0f;
+    float diffuseIBLIntensity = 0.2f;
+    float specularIBLIntensity = 1.2f;
 
     std::unique_ptr<Texture2D> brdfLutTexture;
 

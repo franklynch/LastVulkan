@@ -1,8 +1,20 @@
 #include "Material.hpp"
+#include <stdexcept>
 
-Material::Material(Texture2D& texture)
-    : texture(texture)
+Material::Material(
+    Texture2D& baseColorTexture,
+    Texture2D* defaultNormal,
+    Texture2D* defaultMetallicRoughness)
+    : texture(baseColorTexture),
+    normalTexture(defaultNormal),
+    metallicRoughnessTexture(defaultMetallicRoughness),
+    normalTextureProvided(false),
+    metallicRoughnessTextureProvided(false)
 {
+    if (!defaultNormal || !defaultMetallicRoughness)
+    {
+        throw std::runtime_error("Material created without default textures");
+    }
 }
 
 vk::DescriptorImageInfo Material::getImageInfo() const
@@ -34,7 +46,15 @@ MaterialImageWrite Material::makeImageWrite(vk::DescriptorSet dstSet, uint32_t b
 
 vk::DescriptorImageInfo Material::getNormalImageInfo() const
 {
-    const Texture2D* tex = normalTexture ? normalTexture : &texture;
+    const Texture2D* tex = normalTexture;
+
+    if (!tex)
+    {
+        std::cerr << "Material normal texture missing for material: "
+            << name << std::endl;
+
+        assert(tex && "Material normal texture should never be null");
+    }
 
     vk::DescriptorImageInfo imageInfo{};
     imageInfo
@@ -63,7 +83,12 @@ MaterialImageWrite Material::makeNormalImageWrite(vk::DescriptorSet dstSet, uint
 
 vk::DescriptorImageInfo Material::getMetallicRoughnessImageInfo() const
 {
-    const Texture2D* tex = metallicRoughnessTexture ? metallicRoughnessTexture : &texture;
+    const Texture2D* tex = metallicRoughnessTexture;
+
+    if (!tex)
+    {
+        throw std::runtime_error("Material metallic-roughness texture was not assigned");
+    }
 
     vk::DescriptorImageInfo imageInfo{};
     imageInfo
@@ -88,4 +113,16 @@ MaterialImageWrite Material::makeMetallicRoughnessImageWrite(vk::DescriptorSet d
         .setImageInfo(result.imageInfo);
 
     return result;
+}
+
+void Material::setNormalTexture(Texture2D* texture, bool provided)
+{
+    normalTexture = texture;
+    normalTextureProvided = provided;
+}
+
+void Material::setMetallicRoughnessTexture(Texture2D* texture, bool provided)
+{
+    metallicRoughnessTexture = texture;
+    metallicRoughnessTextureProvided = provided;
 }

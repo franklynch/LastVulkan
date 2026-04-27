@@ -14,6 +14,11 @@ public:
 
     void init(EnvironmentResources& environment);
 
+    [[nodiscard]] uint32_t getDebugRuntimePrefilteredMipLevels() const
+    {
+        return runtimePrefilteredMipLevels;
+    }
+
 private:
     void createResources(EnvironmentResources& environment);
     void createFaceViews(EnvironmentResources& environment);
@@ -22,6 +27,8 @@ private:
     void updateDescriptorSet(EnvironmentResources& environment);
     void createPipeline();
     void render(EnvironmentResources& environment);
+
+    
 
 private:
     VulkanContext& vkContext;

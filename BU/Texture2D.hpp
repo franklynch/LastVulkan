@@ -47,9 +47,9 @@ public:
         VulkanContext& vkContext,
         BufferUtils& bufferUtils,
         ImageUtils& imageUtils,
-        const std::string& path);
+        const std::string& path,
+        vk::Format format);
 
-    // Convenience byte upload path kept for existing renderer code
     Texture2D(
         VulkanContext& vkContext,
         BufferUtils& bufferUtils,
@@ -59,7 +59,7 @@ public:
         uint32_t height,
         uint32_t channels,
         const std::string& debugName = "<memory>",
-        vk::Format format = vk::Format::eR8G8B8A8Srgb,
+        vk::Format format = vk::Format::eR8G8B8A8Unorm,
         SamplerOptions samplerOptions = {});
 
     // Raw upload path for future LUT/HDR work

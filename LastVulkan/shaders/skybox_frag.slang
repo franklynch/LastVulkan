@@ -20,6 +20,9 @@ struct UniformBuffer
     float4 environmentParams1; // x=diffuseIBLIntensity, y=specularIBLIntensity, z=debugReflectionOnly, w=enableIBL
     float4 postProcessParams; // x=postExposure, y=toneMappingEnabled, z=gammaEnabled, w=unused
     float4 environmentControlParams; // x=rotateSkybox, y=rotateIBLLighting, z/w unused
+    int4 debugParams;
+    float4 specularDebugParams;
+    float4 specularCurveParams;
 };
 
 [[vk::binding(0, 0)]]

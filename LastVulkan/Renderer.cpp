@@ -566,7 +566,11 @@ void Renderer::init()
     "assets/skybox/front.jpg",
     "assets/skybox/back.jpg" });
 
-    createHdrEnvironmentTexture("assets/hdr/studio.hdr");
+    // createHdrEnvironmentTexture("assets/hdr/studio.hdr");
+
+    createHdrEnvironmentTexture("assets/hdr/citrus_orchard_road_puresky_4k.hdr");
+
+    
     
     environmentRenderer = std::make_unique<EnvironmentRenderer>(vkContext, bufferUtils);
     environmentRenderer->init(
@@ -587,8 +591,7 @@ void Renderer::init()
     prefilterRenderer->init(environment);
        
 
-    
-    
+     
 
     
 
@@ -1435,6 +1438,32 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         0.0f
     );
 
+    ubo.debugParams = glm::ivec4(uiState.debugViewMode, 0, 0, 0);
+
+    const uint32_t mipLevels =
+        prefilterRenderer
+        ? prefilterRenderer->getDebugRuntimePrefilteredMipLevels()
+        : 1;
+
+    float maxPrefilterMip =
+        mipLevels > 0
+        ? static_cast<float>(mipLevels - 1)
+        : 0.0f;
+
+    debugSpecularMip = std::clamp(debugSpecularMip, 0.0f, maxPrefilterMip);
+
+    ubo.specularDebugParams = glm::vec4(
+        debugForceSpecularMip ? 1.0f : 0.0f,
+        debugSpecularMip,
+        maxPrefilterMip,
+        roughnessMipScale);
+
+    ubo.specularCurveParams = glm::vec4(
+        roughnessMipBias,
+        0.0f,
+        0.0f,
+        0.0f);
+
     lastUbo = ubo;
 
 
@@ -1805,6 +1834,14 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         PushConstantData pushData{};
         pushData.model = renderable.getTransform().toMatrix();
 
+        if (animateModel)
+        {
+            pushData.model = glm::rotate(
+                pushData.model,
+                currentAnimationAngle,
+                glm::vec3(0.0f, 0.0f, 1.0f));
+        }
+
         glm::mat3 normalMatrix =
             glm::transpose(glm::inverse(glm::mat3(pushData.model)));
 
@@ -1825,13 +1862,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             0.0f,
             0.0f);
 
-        if (animateModel)
-        {
-            pushData.model = glm::rotate(
-                pushData.model,
-                currentAnimationAngle,
-                glm::vec3(0.0f, 0.0f, 1.0f));
-        }
+        
 
         cmd.pushConstants(
             *pipelineLayout,
@@ -1933,6 +1964,14 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         PushConstantData pushData{};
         pushData.model = renderable->getTransform().toMatrix();
 
+        if (animateModel)
+        {
+            pushData.model = glm::rotate(
+                pushData.model,
+                currentAnimationAngle,
+                glm::vec3(0.0f, 0.0f, 1.0f));
+        }
+
         glm::mat3 normalMatrix =
             glm::transpose(glm::inverse(glm::mat3(pushData.model)));
 
@@ -1954,13 +1993,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             0.0f,
             0.0f);
 
-        if (animateModel)
-        {
-            pushData.model = glm::rotate(
-                pushData.model,
-                currentAnimationAngle,
-                glm::vec3(0.0f, 0.0f, 1.0f));
-        }
+        
 
         cmd.pushConstants(
             *pipelineLayout,
@@ -3467,6 +3500,21 @@ vk::DescriptorImageInfo Renderer::makeImageInfo(
 }
 
 
+void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
+{
+    lightIntensity = preset.lightIntensity;
+    skyboxExposure = preset.skyboxExposure;
+    iblIntensity = preset.iblIntensity;
+    diffuseIBLIntensity = preset.diffuseIBLIntensity;
+    specularIBLIntensity = preset.specularIBLIntensity;
+    postExposure = preset.postExposure;
+}
+
+void Renderer::resetIblEnergyCalibration()
+{
+    applyIblCalibrationPreset(defaultIblCalibrationPreset);
+}
+
 void Renderer::initImGui()
 {
     auto& device = vkContext.getDevice();
@@ -3609,6 +3657,10 @@ void Renderer::buildImGui()
             minCameraRadius,
             maxCameraRadius);
 
+        float maxPrefilterMip =
+            prefilterRenderer
+            ? static_cast<float>(prefilterRenderer->getDebugRuntimePrefilteredMipLevels() - 1)
+            : 0.0f;
 
         EditorPanels::drawLookDevPanel(
             lightDirection,
@@ -3616,6 +3668,7 @@ void Renderer::buildImGui()
             lightIntensity,
             ambientColor,
             ambientIntensity,
+            uiState.debugViewMode,
 
             showSkybox,
             enableIBL,
@@ -3634,7 +3687,17 @@ void Renderer::buildImGui()
             rotateSkybox,
             rotateIBLLighting,
 
-            [this]() { resetEnvironmentSettings(); });
+            debugForceSpecularMip,
+            debugSpecularMip,
+            roughnessMipScale,
+            roughnessMipBias,
+            maxPrefilterMip,
+
+            [this]() { resetEnvironmentSettings(); },
+            [this]() { resetIblEnergyCalibration(); }
+            
+          
+            );
 
         EditorPanels::drawUboInspector(lastUbo);
 

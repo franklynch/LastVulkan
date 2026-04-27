@@ -67,7 +67,7 @@ namespace EditorPanels
         float& lightIntensity,
         glm::vec3& ambientColor,
         float& ambientIntensity,
-
+        int& debugViewMode,
         bool& showSkybox,
         bool& enableIBL,
         bool& debugReflectionOnly,
@@ -85,7 +85,14 @@ namespace EditorPanels
         bool& rotateSkybox,
         bool& rotateIBLLighting,
 
-        const std::function<void()>& onResetEnvironment);
+        bool& debugForceSpecularMip,
+        float& debugSpecularMip,
+        float& roughnessMipScale,
+        float& roughnessMipBias,
+        float maxPrefilterMip,
+
+        const std::function<void()>& onResetEnvironment,
+        const std::function<void()>& onResetIblCalibration);
 
     void drawCameraPanel(
         Camera& camera,

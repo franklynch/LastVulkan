@@ -51,7 +51,7 @@ namespace EditorPanels
             ImGui::Text("Vertices: %u", totalVertexCount);
             ImGui::Text("Indices: %u", totalIndexCount);
         }
-    }   
+    }
 
     void drawAnimationPanel(
         bool& animateModel,
@@ -232,24 +232,24 @@ namespace EditorPanels
         }
 
 
-    /*    ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
-        ImGui::Text("Material index: %d", selectedMaterialIndex);
+        /*    ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
+            ImGui::Text("Material index: %d", selectedMaterialIndex);
 
-        ImGui::Text("Material name: %s",
-            selectedMaterial->getName().empty() ? "<unnamed>" : selectedMaterial->getName().c_str());
+            ImGui::Text("Material name: %s",
+                selectedMaterial->getName().empty() ? "<unnamed>" : selectedMaterial->getName().c_str());
 
-        ImGui::Text("Double sided: %s",
-            selectedMaterial->isDoubleSided() ? "true" : "false");
+            ImGui::Text("Double sided: %s",
+                selectedMaterial->isDoubleSided() ? "true" : "false");
 
-        ImGui::Text("Has normal map: %s", selectedMaterial->hasNormalTexture() ? "true" : "false");
+            ImGui::Text("Has normal map: %s", selectedMaterial->hasNormalTexture() ? "true" : "false");
 
-        ImGui::Text("Has metallic-roughness map: %s",
-            selectedMaterial->hasMetallicRoughnessTexture() ? "true" : "false");
+            ImGui::Text("Has metallic-roughness map: %s",
+                selectedMaterial->hasMetallicRoughnessTexture() ? "true" : "false");
 
-        ImGui::Text("Alpha mode: %s", selectedMaterial->getAlphaMode().c_str());
-        ImGui::Text("Alpha cutoff: %.3f", selectedMaterial->getAlphaCutoff());
+            ImGui::Text("Alpha mode: %s", selectedMaterial->getAlphaMode().c_str());
+            ImGui::Text("Alpha cutoff: %.3f", selectedMaterial->getAlphaCutoff());
 
-      */
+          */
 
         float normalScale = selectedMaterial->getNormalScale();
         if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 2.0f))
@@ -287,7 +287,7 @@ namespace EditorPanels
         float& lightIntensity,
         glm::vec3& ambientColor,
         float& ambientIntensity,
-
+        int& debugViewMode,
         bool& showSkybox,
         bool& enableIBL,
         bool& debugReflectionOnly,
@@ -305,16 +305,89 @@ namespace EditorPanels
         bool& rotateSkybox,
         bool& rotateIBLLighting,
 
-        const std::function<void()>& onResetEnvironment)
+        bool& debugForceSpecularMip,
+        float& debugSpecularMip,
+        float& roughnessMipScale,
+        float& roughnessMipBias,
+        float maxPrefilterMip,
+
+        const std::function<void()>& onResetEnvironment,
+        const std::function<void()>& onResetIblCalibration)
+       
+
     {
         if (!ImGui::CollapsingHeader("Look Dev / Lighting", ImGuiTreeNodeFlags_DefaultOpen))
             return;
+
+        if (ImGui::TreeNodeEx("Material / Lighting Debug", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            static const char* debugViewNames[] =
+            {
+                "Final",
+                "Albedo",
+                "Normal",
+                "Roughness",
+                "Metallic",
+                "Direct Only",
+                "Diffuse IBL Only",
+                "Specular IBL Only",
+                "Reflection Vector"
+            };
+
+            ImGui::Combo(
+                "Debug View",
+                &debugViewMode,
+                debugViewNames,
+                IM_ARRAYSIZE(debugViewNames));
+
+            ImGui::TextWrapped(
+                "Debug views bypass post-processing and show raw material or lighting components.");
+
+            ImGui::TreePop();
+        }
+
+        if (ImGui::TreeNodeEx("IBL Energy Calibration", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::TextWrapped(
+                "Calibrate lighting in isolation:\n"
+                "1. Direct Only ? adjust light intensity\n"
+                "2. Diffuse IBL Only ? adjust diffuse intensity\n"
+                "3. Specular IBL Only ? adjust specular intensity\n"
+                "4. Final ? adjust global IBL + exposure");
+
+            ImGui::Spacing();
+
+            if (ImGui::Button("Reset IBL Calibration"))
+            {
+                onResetIblCalibration();
+            }
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Reset Environment"))
+            {
+                onResetEnvironment();
+            }
+
+            ImGui::Separator();
+
+            ImGui::Text("Active Values:");
+
+            ImGui::BulletText("Light Intensity: %.3f", lightIntensity);
+            ImGui::BulletText("Skybox Exposure: %.3f", skyboxExposure);
+            ImGui::BulletText("IBL Intensity: %.3f", iblIntensity);
+            ImGui::BulletText("Diffuse IBL: %.3f", diffuseIBLIntensity);
+            ImGui::BulletText("Specular IBL: %.3f", specularIBLIntensity);
+            ImGui::BulletText("Post Exposure: %.3f", postExposure);
+
+            ImGui::TreePop();
+        }
 
         if (ImGui::TreeNodeEx("Direct Light", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::DragFloat3("Direction", &lightDirection.x, 0.01f, -1.0f, 1.0f);
             ImGui::ColorEdit3("Color", &lightColor.x);
-            ImGui::SliderFloat("Intensity", &lightIntensity, 0.0f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Intensity", &lightIntensity, 0.0f, 50.0f, "%.2f");
 
             if (ImGui::Button("Reset Direct Light"))
             {
@@ -369,6 +442,44 @@ namespace EditorPanels
             ImGui::TreePop();
         }
 
+      
+
+        if (ImGui::TreeNodeEx("Specular / PMREM Debug", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            ImGui::Checkbox("Force Specular Mip", &debugForceSpecularMip);
+
+            ImGui::SliderFloat(
+                "Forced Specular Mip",
+                &debugSpecularMip,
+                0.0f,
+                maxPrefilterMip,
+                "%.2f");
+
+            ImGui::Separator();
+
+            ImGui::SliderFloat(
+                "Roughness Mip Scale",
+                &roughnessMipScale,
+                0.25f,
+                2.0f,
+                "%.2f");
+
+            ImGui::SliderFloat(
+                "Roughness Mip Bias",
+                &roughnessMipBias,
+                -2.0f,
+                2.0f,
+                "%.2f");
+
+            if (ImGui::Button("Reset Roughness Mip Curve"))
+            {
+                roughnessMipScale = 1.0f;
+                roughnessMipBias = 0.0f;
+            }
+
+            ImGui::TreePop();
+        }
+
         ImGui::Separator();
 
         if (ImGui::Button("Reset Look Dev"))
@@ -380,8 +491,68 @@ namespace EditorPanels
             ambientColor = glm::vec3(1.0f);
             ambientIntensity = 0.0f;
 
+            toneMappingEnabled = true;
+            gammaEnabled = true;
+            postExposure = 1.0f;
+
             onResetEnvironment();
         }
+
+        ImGui::Separator();
+
+        
+    }
+
+    void EditorPanels::drawUboInspector(const UniformBufferObject& ubo)
+    {
+        if (!ImGui::CollapsingHeader("UBO Inspector"))
+            return;
+
+        ImGui::Text("Camera Position: %.2f %.2f %.2f",
+            ubo.cameraPosition.x,
+            ubo.cameraPosition.y,
+            ubo.cameraPosition.z);
+
+        ImGui::Text("Light Dir: %.2f %.2f %.2f",
+            ubo.lightDirection.x,
+            ubo.lightDirection.y,
+            ubo.lightDirection.z);
+
+        ImGui::Text("Light Color: %.2f %.2f %.2f",
+            ubo.lightColor.x,
+            ubo.lightColor.y,
+            ubo.lightColor.z);
+
+        ImGui::Text("Ambient: %.2f %.2f %.2f",
+            ubo.ambientColor.x,
+            ubo.ambientColor.y,
+            ubo.ambientColor.z);
+
+        ImGui::Separator();
+
+        ImGui::Text("IBL:");
+        ImGui::Text("  Intensity: %.2f", ubo.environmentParams0.z);
+        ImGui::Text("  Diffuse: %.2f", ubo.environmentParams1.x);
+        ImGui::Text("  Specular: %.2f", ubo.environmentParams1.y);
+        ImGui::Text("  Enabled: %s", ubo.environmentParams1.w > 0.5f ? "Yes" : "No");
+
+        ImGui::Separator();
+
+        ImGui::Text("Skybox:");
+        ImGui::Text("  Exposure: %.2f", ubo.environmentParams0.x);
+        ImGui::Text("  LOD: %.2f", ubo.environmentParams0.y);
+
+        ImGui::Separator();
+
+        ImGui::Text("Post:");
+        ImGui::Text("  Exposure: %.2f", ubo.postProcessParams.x);
+        ImGui::Text("  ToneMap: %s", ubo.postProcessParams.y > 0.5f ? "On" : "Off");
+        ImGui::Text("  Gamma: %s", ubo.postProcessParams.z > 0.5f ? "On" : "Off");
+
+        ImGui::Separator();
+
+        ImGui::Text("Debug:");
+        ImGui::Text("  View Mode: %d", ubo.debugParams.x);
     }
     
     void drawCameraPanel(

@@ -85,6 +85,165 @@ namespace
         transform.rotation = glm::degrees(glm::eulerAngles(rotationQuat));
         return transform;
     }
+
+    const unsigned char* getAccessorElementPtr(
+        const tinygltf::Model& model,
+        const tinygltf::Accessor& accessor,
+        size_t elementIndex)
+    {
+        if (accessor.bufferView < 0)
+            throw std::runtime_error("glTF accessor has no bufferView");
+
+        const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+        const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
+
+        const size_t stride = accessor.ByteStride(bufferView);
+        const size_t offset =
+            static_cast<size_t>(bufferView.byteOffset) +
+            static_cast<size_t>(accessor.byteOffset) +
+            elementIndex * stride;
+
+        if (offset >= buffer.data.size())
+            throw std::runtime_error("glTF accessor read out of bounds");
+
+        return buffer.data.data() + offset;
+    }
+
+    void requireAccessor(
+        const tinygltf::Accessor& accessor,
+        int expectedComponentType,
+        int expectedType,
+        const char* semanticName)
+    {
+        if (accessor.componentType != expectedComponentType ||
+            accessor.type != expectedType)
+        {
+            throw std::runtime_error(
+                std::string("Unsupported glTF accessor format for ") + semanticName);
+        }
+    }
+
+    glm::vec3 readVec3Float(
+        const tinygltf::Model& model,
+        const tinygltf::Accessor& accessor,
+        size_t index)
+    {
+        const unsigned char* ptr = getAccessorElementPtr(model, accessor, index);
+        const float* f = reinterpret_cast<const float*>(ptr);
+
+        return glm::vec3(f[0], f[1], f[2]);
+    }
+
+    glm::vec4 readVec4Float(
+        const tinygltf::Model& model,
+        const tinygltf::Accessor& accessor,
+        size_t index)
+    {
+        const unsigned char* ptr = getAccessorElementPtr(model, accessor, index);
+        const float* f = reinterpret_cast<const float*>(ptr);
+
+        return glm::vec4(f[0], f[1], f[2], f[3]);
+    }
+
+    glm::vec2 readTexCoord(
+        const tinygltf::Model& model,
+        const tinygltf::Accessor& accessor,
+        size_t index)
+    {
+        const unsigned char* ptr = getAccessorElementPtr(model, accessor, index);
+
+        if (accessor.type != TINYGLTF_TYPE_VEC2)
+            throw std::runtime_error("TEXCOORD_0 must be VEC2");
+
+        switch (accessor.componentType)
+        {
+        case TINYGLTF_COMPONENT_TYPE_FLOAT:
+        {
+            const float* f = reinterpret_cast<const float*>(ptr);
+            return glm::vec2(f[0], f[1]);
+        }
+
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+        {
+            const uint8_t* u = reinterpret_cast<const uint8_t*>(ptr);
+            return glm::vec2(
+                static_cast<float>(u[0]) / 255.0f,
+                static_cast<float>(u[1]) / 255.0f);
+        }
+
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+        {
+            const uint16_t* u = reinterpret_cast<const uint16_t*>(ptr);
+            return glm::vec2(
+                static_cast<float>(u[0]) / 65535.0f,
+                static_cast<float>(u[1]) / 65535.0f);
+        }
+
+        default:
+            throw std::runtime_error("Unsupported TEXCOORD_0 component type");
+        }
+    }
+
+    uint32_t readIndex(
+        const tinygltf::Model& model,
+        const tinygltf::Accessor& accessor,
+        size_t index)
+    {
+        if (accessor.bufferView < 0)
+            throw std::runtime_error("glTF index accessor has no bufferView");
+
+        const tinygltf::BufferView& bufferView =
+            model.bufferViews[accessor.bufferView];
+
+        const tinygltf::Buffer& buffer =
+            model.buffers[bufferView.buffer];
+
+        if (index >= accessor.count)
+            throw std::runtime_error("glTF index accessor index out of range");
+
+        size_t componentSize = 0;
+
+        switch (accessor.componentType)
+        {
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+            componentSize = sizeof(uint8_t);
+            break;
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+            componentSize = sizeof(uint16_t);
+            break;
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+            componentSize = sizeof(uint32_t);
+            break;
+        default:
+            throw std::runtime_error("Unsupported glTF index component type");
+        }
+
+        const size_t stride = accessor.ByteStride(bufferView);
+
+        const size_t offset =
+            static_cast<size_t>(bufferView.byteOffset) +
+            static_cast<size_t>(accessor.byteOffset) +
+            index * stride;
+
+        if (offset + componentSize > buffer.data.size())
+            throw std::runtime_error("glTF index accessor read out of bounds");
+
+        const unsigned char* ptr = buffer.data.data() + offset;
+
+        switch (accessor.componentType)
+        {
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
+            return static_cast<uint32_t>(*reinterpret_cast<const uint8_t*>(ptr));
+
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
+            return static_cast<uint32_t>(*reinterpret_cast<const uint16_t*>(ptr));
+
+        case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
+            return *reinterpret_cast<const uint32_t*>(ptr);
+        }
+
+        throw std::runtime_error("Unreachable glTF index read path");
+    }
 }
 
 GltfSceneData GltfLoader::load(const std::string& path)
@@ -217,54 +376,60 @@ GltfSceneData GltfLoader::load(const std::string& path)
                     if (!primitive.attributes.contains("POSITION"))
                         continue;
 
+                    if (primitive.mode != TINYGLTF_MODE_TRIANGLES)
+                    {
+                        std::cout << "Skipping non-triangle glTF primitive\n";
+                        continue;
+                    }
+
                     MeshData meshData;
 
-                    const float* positions = nullptr;
-                    const float* normals = nullptr;
-                    const float* texcoords = nullptr;
-                    const float* tangents = nullptr;
-                    size_t vertexCount = 0;
+                    const tinygltf::Accessor& positionAccessor =
+                        model.accessors[primitive.attributes.at("POSITION")];
 
-                    {
-                        const auto& accessor = model.accessors[primitive.attributes.at("POSITION")];
-                        const auto& bufferView = model.bufferViews[accessor.bufferView];
-                        const auto& buffer = model.buffers[bufferView.buffer];
+                    requireAccessor(
+                        positionAccessor,
+                        TINYGLTF_COMPONENT_TYPE_FLOAT,
+                        TINYGLTF_TYPE_VEC3,
+                        "POSITION");
 
-                        positions = reinterpret_cast<const float*>(
-                            buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
-
-                        vertexCount = accessor.count;
-                    }
+                    const tinygltf::Accessor* normalAccessor = nullptr;
+                    const tinygltf::Accessor* texCoordAccessor = nullptr;
+                    const tinygltf::Accessor* tangentAccessor = nullptr;
 
                     if (primitive.attributes.contains("NORMAL"))
                     {
-                        const auto& accessor = model.accessors[primitive.attributes.at("NORMAL")];
-                        const auto& bufferView = model.bufferViews[accessor.bufferView];
-                        const auto& buffer = model.buffers[bufferView.buffer];
+                        normalAccessor = &model.accessors[primitive.attributes.at("NORMAL")];
 
-                        normals = reinterpret_cast<const float*>(
-                            buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
+                        requireAccessor(
+                            *normalAccessor,
+                            TINYGLTF_COMPONENT_TYPE_FLOAT,
+                            TINYGLTF_TYPE_VEC3,
+                            "NORMAL");
                     }
+
+                    
 
                     if (primitive.attributes.contains("TEXCOORD_0"))
                     {
-                        const auto& accessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
-                        const auto& bufferView = model.bufferViews[accessor.bufferView];
-                        const auto& buffer = model.buffers[bufferView.buffer];
+                        texCoordAccessor = &model.accessors[primitive.attributes.at("TEXCOORD_0")];
 
-                        texcoords = reinterpret_cast<const float*>(
-                            buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
+                        if (texCoordAccessor->type != TINYGLTF_TYPE_VEC2)
+                            throw std::runtime_error("TEXCOORD_0 must be VEC2");
                     }
 
                     if (primitive.attributes.contains("TANGENT"))
                     {
-                        const auto& accessor = model.accessors[primitive.attributes.at("TANGENT")];
-                        const auto& bufferView = model.bufferViews[accessor.bufferView];
-                        const auto& buffer = model.buffers[bufferView.buffer];
+                        tangentAccessor = &model.accessors[primitive.attributes.at("TANGENT")];
 
-                        tangents = reinterpret_cast<const float*>(
-                            buffer.data.data() + bufferView.byteOffset + accessor.byteOffset);
+                        requireAccessor(
+                            *tangentAccessor,
+                            TINYGLTF_COMPONENT_TYPE_FLOAT,
+                            TINYGLTF_TYPE_VEC4,
+                            "TANGENT");
                     }
+
+                    const size_t vertexCount = positionAccessor.count;
 
                     meshData.vertices.resize(vertexCount);
 
@@ -272,31 +437,18 @@ GltfSceneData GltfLoader::load(const std::string& path)
                     {
                         Vertex v{};
 
-                        v.pos = {
-                            positions[i * 3 + 0],
-                            positions[i * 3 + 1],
-                            positions[i * 3 + 2]
-                        };
+                        v.pos = readVec3Float(model, positionAccessor, i);
 
-                        v.normal = normals
-                            ? glm::vec3(
-                                normals[i * 3 + 0],
-                                normals[i * 3 + 1],
-                                normals[i * 3 + 2])
+                        v.normal = normalAccessor
+                            ? readVec3Float(model, *normalAccessor, i)
                             : glm::vec3(0.0f, 0.0f, 1.0f);
 
-                        v.texCoord = texcoords
-                            ? glm::vec2(
-                                texcoords[i * 2 + 0],
-                                texcoords[i * 2 + 1])
+                        v.texCoord = texCoordAccessor
+                            ? readTexCoord(model, *texCoordAccessor, i)
                             : glm::vec2(0.0f);
 
-                        v.tangent = tangents
-                            ? glm::vec4(
-                                tangents[i * 4 + 0],
-                                tangents[i * 4 + 1],
-                                tangents[i * 4 + 2],
-                                tangents[i * 4 + 3])
+                        v.tangent = tangentAccessor
+                            ? readVec4Float(model, *tangentAccessor, i)
                             : glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
                         meshData.vertices[i] = v;
@@ -304,43 +456,24 @@ GltfSceneData GltfLoader::load(const std::string& path)
 
                     if (primitive.indices >= 0)
                     {
-                        const auto& accessor = model.accessors[primitive.indices];
-                        const auto& bufferView = model.bufferViews[accessor.bufferView];
-                        const auto& buffer = model.buffers[bufferView.buffer];
+                        const tinygltf::Accessor& indexAccessor =
+                            model.accessors[primitive.indices];
 
-                        const unsigned char* dataPtr =
-                            buffer.data.data() + bufferView.byteOffset + accessor.byteOffset;
+                        if (indexAccessor.type != TINYGLTF_TYPE_SCALAR)
+                            throw std::runtime_error("glTF index accessor must be SCALAR");
 
-                        meshData.indices.resize(accessor.count);
+                        meshData.indices.resize(indexAccessor.count);
 
-                        for (size_t i = 0; i < accessor.count; ++i)
+                        for (size_t i = 0; i < indexAccessor.count; ++i)
                         {
-                            switch (accessor.componentType)
-                            {
-                            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE:
-                                meshData.indices[i] =
-                                    reinterpret_cast<const uint8_t*>(dataPtr)[i];
-                                break;
-
-                            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:
-                                meshData.indices[i] =
-                                    reinterpret_cast<const uint16_t*>(dataPtr)[i];
-                                break;
-
-                            case TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT:
-                                meshData.indices[i] =
-                                    reinterpret_cast<const uint32_t*>(dataPtr)[i];
-                                break;
-
-                            default:
-                                throw std::runtime_error("Unsupported index component type");
-                            }
+                            meshData.indices[i] = readIndex(model, indexAccessor, i);
                         }
                     }
                     else
                     {
                         meshData.indices.resize(vertexCount);
-                        for (uint32_t i = 0; i < vertexCount; ++i)
+
+                        for (uint32_t i = 0; i < static_cast<uint32_t>(vertexCount); ++i)
                         {
                             meshData.indices[i] = i;
                         }

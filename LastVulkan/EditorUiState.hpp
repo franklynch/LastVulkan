@@ -8,4 +8,6 @@ struct EditorUiState
     bool showDemoWindow = false;
 
     bool wireframeRequested = false;
+
+    int debugViewMode = 0;
 };
