@@ -230,26 +230,7 @@ namespace EditorPanels
         {
             selectedMaterial->setRoughnessFactor(roughness);
         }
-
-
-        /*    ImGui::Text("Renderable: %s", selectedRenderable->getName().c_str());
-            ImGui::Text("Material index: %d", selectedMaterialIndex);
-
-            ImGui::Text("Material name: %s",
-                selectedMaterial->getName().empty() ? "<unnamed>" : selectedMaterial->getName().c_str());
-
-            ImGui::Text("Double sided: %s",
-                selectedMaterial->isDoubleSided() ? "true" : "false");
-
-            ImGui::Text("Has normal map: %s", selectedMaterial->hasNormalTexture() ? "true" : "false");
-
-            ImGui::Text("Has metallic-roughness map: %s",
-                selectedMaterial->hasMetallicRoughnessTexture() ? "true" : "false");
-
-            ImGui::Text("Alpha mode: %s", selectedMaterial->getAlphaMode().c_str());
-            ImGui::Text("Alpha cutoff: %.3f", selectedMaterial->getAlphaCutoff());
-
-          */
+                
 
         float normalScale = selectedMaterial->getNormalScale();
         if (ImGui::SliderFloat("Normal Scale", &normalScale, 0.0f, 2.0f))
@@ -274,6 +255,21 @@ namespace EditorPanels
         {
             ImGui::Text("Texture: %s", selectedTexture->getSourcePath().c_str());
             ImGui::Text("Mip levels: %u", selectedTexture->getMipLevels());
+
+            ImGui::SeparatorText("AO");
+
+            ImGui::Text("AO Texture: %s",
+                selectedMaterial->hasRealOcclusionTexture() ? "Yes" : "Fallback");
+
+            ImGui::Text("AO Strength: %.3f",
+                selectedMaterial->getOcclusionStrength());
+
+            float aoStrength = selectedMaterial->getOcclusionStrength();
+
+            if (ImGui::SliderFloat("AO Strength", &aoStrength, 0.0f, 1.0f, "%.2f"))
+            {
+                selectedMaterial->setOcclusionStrength(aoStrength);
+            }
         }
         else
         {
@@ -333,7 +329,8 @@ namespace EditorPanels
                 "Diffuse IBL Only",
                 "Specular IBL Only",
                 "Reflection Vector",
-                "Reflection Face"
+                "Reflection Face",
+                "AO"
             };
 
             ImGui::Combo(

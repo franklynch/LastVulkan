@@ -340,15 +340,38 @@ GltfSceneData GltfLoader::load(const std::string& path)
             materialData.normalScale = static_cast<float>(gltfMaterial.normalTexture.scale);
         }
 
-  
+        if (gltfMaterial.occlusionTexture.index >= 0)
+        {
+            int textureIndex = gltfMaterial.occlusionTexture.index;
 
-            std::cout << "Material: "
-                << (materialData.name.empty() ? "<unnamed>" : materialData.name)
-                << ", baseColorImageIndex = " << materialData.baseColorImageIndex
-                << ", metallicRoughnessImageIndex = " << materialData.metallicRoughnessImageIndex
-                << ", normalImageIndex = " << materialData.normalImageIndex
-                << ", normalScale = " << materialData.normalScale
-                << std::endl;
+            if (textureIndex >= 0 && textureIndex < static_cast<int>(model.textures.size()))
+            {
+                const tinygltf::Texture& gltfTexture = model.textures[textureIndex];
+                materialData.occlusionImageIndex = gltfTexture.source;
+            }
+
+            materialData.occlusionStrength =
+                static_cast<float>(gltfMaterial.occlusionTexture.strength);
+        }
+
+        if (gltfMaterial.emissiveFactor.size() == 3)
+        {
+            materialData.emissiveFactor = glm::vec3(
+                static_cast<float>(gltfMaterial.emissiveFactor[0]),
+                static_cast<float>(gltfMaterial.emissiveFactor[1]),
+                static_cast<float>(gltfMaterial.emissiveFactor[2]));
+        }
+
+        if (gltfMaterial.emissiveTexture.index >= 0)
+        {
+            int textureIndex = gltfMaterial.emissiveTexture.index;
+
+            if (textureIndex >= 0 && textureIndex < static_cast<int>(model.textures.size()))
+            {
+                const tinygltf::Texture& gltfTexture = model.textures[textureIndex];
+                materialData.emissiveImageIndex = gltfTexture.source;
+            }
+        }
   
 
         result.materials.push_back(materialData);

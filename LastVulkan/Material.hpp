@@ -41,6 +41,8 @@ public:
     bool hasNormalTexture() const { return normalTexture != nullptr; }
     bool hasMetallicRoughnessTexture() const { return metallicRoughnessTexture != nullptr; }
 
+
+
     [[nodiscard]] vk::DescriptorImageInfo getImageInfo() const;
     [[nodiscard]] MaterialImageWrite makeImageWrite(
         vk::DescriptorSet dstSet,
@@ -80,6 +82,62 @@ public:
     bool hasProvidedNormalTexture() const { return normalTextureProvided; }
     bool hasProvidedMetallicRoughnessTexture() const { return metallicRoughnessTextureProvided; }
 
+    void setOcclusionTexture(Texture2D* texture, bool hasRealTexture)
+    {
+        occlusionTexture = texture;
+        hasOcclusionTexture = hasRealTexture;
+    }
+
+    const Texture2D* getOcclusionTexture() const
+    {
+        return occlusionTexture;
+    }
+
+    bool hasRealOcclusionTexture() const
+    {
+        return hasOcclusionTexture;
+    }
+
+    void setOcclusionStrength(float strength)
+    {
+        occlusionStrength = strength;
+    }
+
+    float getOcclusionStrength() const
+    {
+        return occlusionStrength;
+    }
+
+    MaterialImageWrite makeOcclusionImageWrite(
+        vk::DescriptorSet descriptorSet,
+        uint32_t binding) const;
+
+    void setEmissiveTexture(Texture2D* texture, bool hasRealTexture)
+    {
+        emissiveTexture = texture;
+        hasEmissiveTexture = hasRealTexture;
+    }
+
+    const Texture2D* getEmissiveTexture() const
+    {
+        return emissiveTexture;
+    }
+
+    bool hasRealEmissiveTexture() const
+    {
+        return hasEmissiveTexture;
+    }
+
+    void setEmissiveFactor(const glm::vec3& factor)
+    {
+        emissiveFactor = factor;
+    }
+
+    const glm::vec3& getEmissiveFactor() const
+    {
+        return emissiveFactor;
+    }
+
 private:
     Texture2D& texture;
     Texture2D* normalTexture = nullptr;
@@ -98,4 +156,12 @@ private:
 
     bool normalTextureProvided = false;
     bool metallicRoughnessTextureProvided = false;
+
+    Texture2D* occlusionTexture = nullptr;
+    bool hasOcclusionTexture = false;
+    float occlusionStrength = 1.0f;
+
+    Texture2D* emissiveTexture = nullptr;
+    bool hasEmissiveTexture = false;
+    glm::vec3 emissiveFactor{ 0.0f };
 };

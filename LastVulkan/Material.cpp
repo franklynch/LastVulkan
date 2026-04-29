@@ -1,6 +1,7 @@
 #include "Material.hpp"
 #include <stdexcept>
 
+
 Material::Material(
     Texture2D& baseColorTexture,
     Texture2D* defaultNormal,
@@ -125,4 +126,30 @@ void Material::setMetallicRoughnessTexture(Texture2D* texture, bool provided)
 {
     metallicRoughnessTexture = texture;
     metallicRoughnessTextureProvided = provided;
+}
+
+MaterialImageWrite Material::makeOcclusionImageWrite(
+    vk::DescriptorSet descriptorSet,
+    uint32_t binding) const
+{
+    MaterialImageWrite result{};
+
+    if (!occlusionTexture)
+    {
+        throw std::runtime_error("Material occlusion texture is null");
+    }
+
+    result.imageInfo
+        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setImageView(*occlusionTexture->getImageView())
+        .setSampler(*occlusionTexture->getSampler());
+
+    result.write
+        .setDstSet(descriptorSet)
+        .setDstBinding(binding)
+        .setDstArrayElement(0)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setImageInfo(result.imageInfo);
+
+    return result;
 }

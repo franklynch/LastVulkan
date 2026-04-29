@@ -23,6 +23,7 @@ import vulkan_hpp;
 #include "ImageUtils.hpp"
 #include "MeshData.hpp"
 #include "ModelLoader.hpp"
+#include "GltfLoader.hpp"
 #include "Texture2D.hpp"
 #include "GpuMesh.hpp"
 #include "Material.hpp"
@@ -52,7 +53,9 @@ public:
 
     void drawFrame();
 
-private:
+
+    
+    
     void init();
 
     void cleanupSwapChain();
@@ -91,7 +94,7 @@ private:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
-
+   
 
 
 
@@ -103,6 +106,8 @@ private:
     void cleanupDescriptorResources();
 
     void updateCameraControls();
+
+    
 
     void updateUniformBuffer(uint32_t currentFrame);
     void recordCommandBuffer(uint32_t imageIndex);
@@ -158,6 +163,32 @@ private:
     BufferUtils         bufferUtils;
     ImageUtils          imageUtils;
 
+    struct GltfTextureUploadMaps
+    {
+        std::vector<int> baseColor;
+        std::vector<int> normal;
+        std::vector<int> metallicRoughness;
+        std::vector<int> occlusion;
+        std::vector<int> emissive;
+    };
+
+    void clearSceneResources();
+    void createDefaultMaterialTextures();
+    void setupCameraDefaults();
+
+    GltfSceneData loadCurrentGltfScene();
+
+    GltfTextureUploadMaps uploadGltfTextures(const GltfSceneData& imported);
+
+    void createMaterialsFromGltf(
+        const GltfSceneData& imported,
+        const GltfTextureUploadMaps& textureMaps);
+
+    void createRenderablesFromGltf(const GltfSceneData& imported);
+
+
+ 
+
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
 
@@ -175,6 +206,10 @@ private:
     std::unique_ptr<IrradianceRenderer> irradianceRenderer;
     std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
+   
+
+
+    
 
     float rotationSpeed = 10.0f;
 
@@ -211,6 +246,10 @@ private:
     float frameTimeMs = 0.0f;
     float fps = 0.0f;
 
+    
+
+ 
+
     Material* getSelectedRenderableMaterial();
     int getMaterialIndex(const Material& material) const;
 
@@ -227,6 +266,13 @@ private:
 
     std::vector<std::unique_ptr<Texture2D>>     metallicRoughnessTextures;
     std::unique_ptr<Texture2D>                  defaultMetallicRoughnessTexture;
+
+    
+    std::vector<std::unique_ptr<Texture2D>>     aoTextures;
+    std::unique_ptr<Texture2D>                  defaultAoTexture;
+
+    std::vector<std::unique_ptr<Texture2D>>     emissiveTextures;
+    std::unique_ptr<Texture2D> defaultEmissiveTexture;
 
 
     vk::raii::SwapchainKHR              swapChain = nullptr;
