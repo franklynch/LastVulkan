@@ -1,18 +1,14 @@
 #pragma once
 
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_raii.hpp>
+
+#include <cstdint>
 #include <string>
-#include <vector>
-#include <cstddef>
 
-#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
-#	include <vulkan/vulkan_raii.hpp>
-#else
-import vulkan_hpp;
-#endif
-
-#include "VulkanContext.hpp"
-#include "BufferUtils.hpp"
-#include "ImageUtils.hpp"
+class VulkanContext;
+class BufferUtils;
+class ImageUtils;
 
 class Texture2D
 {
@@ -27,84 +23,95 @@ public:
         vk::SamplerAddressMode addressModeV = vk::SamplerAddressMode::eRepeat;
         vk::SamplerAddressMode addressModeW = vk::SamplerAddressMode::eRepeat;
 
+        
         bool enableAnisotropy = true;
-        float maxLod = -1.0f; // negative = use mipLevels
+        float maxAnisotropy = 16.0f;
+
+        float minLod = 0.0f;
+        float maxLod = 1.0f;
     };
 
-    struct UploadDesc
-    {
-        const void* data = nullptr;
-        uint32_t width = 0;
-        uint32_t height = 0;
-
-        vk::Format format = vk::Format::eR8G8B8A8Unorm;
-        size_t dataSizeBytes = 0;
-        bool generateMips = true;
-    };
-
-public:
     Texture2D(
-        VulkanContext& vkContext,
+        VulkanContext& context,
+        BufferUtils& bufferUtils,
+        ImageUtils& imageUtils,
+        const unsigned char* pixels,
+        uint32_t width,
+        uint32_t height,
+        uint32_t channels,
+        const std::string& name,
+        vk::Format format);
+
+    Texture2D(
+        VulkanContext& context,
+        BufferUtils& bufferUtils,
+        ImageUtils& imageUtils,
+        const unsigned char* pixels,
+        uint32_t width,
+        uint32_t height,
+        uint32_t channels,
+        const std::string& name,
+        vk::Format format,
+        const SamplerOptions& samplerOptions);
+
+    Texture2D(
+        VulkanContext& context,
         BufferUtils& bufferUtils,
         ImageUtils& imageUtils,
         const std::string& path,
         vk::Format format);
 
     Texture2D(
-        VulkanContext& vkContext,
+        VulkanContext& context,
         BufferUtils& bufferUtils,
         ImageUtils& imageUtils,
-        const unsigned char* pixelData,
-        uint32_t width,
-        uint32_t height,
-        uint32_t channels,
-        const std::string& debugName = "<memory>",
-        vk::Format format = vk::Format::eR8G8B8A8Unorm,
-        SamplerOptions samplerOptions = {});
+        const std::string& path,
+        vk::Format format,
+        const SamplerOptions& samplerOptions);
 
-    // Raw upload path for future LUT/HDR work
-    Texture2D(
-        VulkanContext& vkContext,
-        BufferUtils& bufferUtils,
-        ImageUtils& imageUtils,
-        const UploadDesc& desc,
-        const std::string& debugName = "<memory>",
-        SamplerOptions samplerOptions = {});
+    ~Texture2D() = default;
 
     Texture2D(const Texture2D&) = delete;
     Texture2D& operator=(const Texture2D&) = delete;
 
-    [[nodiscard]] const vk::raii::ImageView& getImageView() const { return imageView; }
-    [[nodiscard]] const vk::raii::Sampler& getSampler() const { return sampler; }
-    [[nodiscard]] uint32_t getMipLevels() const { return mipLevels; }
-    [[nodiscard]] const std::string& getSourcePath() const { return sourcePath; }
-    [[nodiscard]] vk::Format getFormat() const { return imageFormat; }
+    Texture2D(Texture2D&&) noexcept = default;
+    Texture2D& operator=(Texture2D&&) noexcept = default;
+
+    vk::ImageView getImageView() const { return *imageView; }
+    vk::Sampler getSampler() const { return *sampler; }
+
+    uint32_t getWidth() const { return width; }
+    uint32_t getHeight() const { return height; }
+    uint32_t getMipLevels() const { return mipLevels; }
+
+    vk::Format getFormat() const { return format; }
+
+    const std::string& getSourcePath() const { return sourcePath; }
 
 private:
-    void loadFromFile(const std::string& path);
-    void loadFromMemory(const UploadDesc& desc);
-
-    void createImageView();
-    void createSampler();
-    void generateMipmaps(vk::raii::Image& image,
-        vk::Format imageFormat,
-        int32_t texWidth,
-        int32_t texHeight,
-        uint32_t mipLevels);
+    void createFromPixels(
+        const unsigned char* pixels,
+        uint32_t width,
+        uint32_t height,
+        uint32_t channels,
+        const std::string& name,
+        vk::Format format,
+        const SamplerOptions& samplerOptions);
 
 private:
     VulkanContext& vkContext;
     BufferUtils& bufferUtils;
     ImageUtils& imageUtils;
 
-    std::string sourcePath;
+    vk::raii::Image image{ nullptr };
+    vk::raii::DeviceMemory memory{ nullptr };
+    vk::raii::ImageView imageView{ nullptr };
+    vk::raii::Sampler sampler{ nullptr };
 
-    uint32_t mipLevels = 0;
-    vk::raii::Image image = nullptr;
-    vk::raii::DeviceMemory imageMemory = nullptr;
-    vk::raii::ImageView imageView = nullptr;
-    vk::raii::Sampler sampler = nullptr;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t mipLevels = 1;
 
-    vk::Format imageFormat = vk::Format::eR8G8B8A8Srgb;
-    SamplerOptions samplerOptions{};
+    vk::Format format = vk::Format::eUndefined;
+    std::string sourcePath = "<generated>";
 };

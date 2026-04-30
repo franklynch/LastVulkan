@@ -37,6 +37,7 @@ struct PushConstants
     float4 baseColorFactor;
     float4 materialParams;   // x=metallic, y=roughness, z=normalScale, w=alphaCutoff
     float4 alphaModeParams;  // x=isMask, y=isBlend, z/w unused
+    float4 emissiveFactor;   // x/y/z=emissive color, w=emissive intensity
 };
 
 [[vk::push_constant]]
@@ -54,6 +55,9 @@ Sampler2D metallicRoughnessTexture;
 [[vk::binding(3, 1)]]
 Sampler2D occlusionTexture;
 
+[[vk::binding(4, 1)]]
+Sampler2D emissiveTexture;
+
 [[vk::binding(0, 2)]]
 SamplerCube irradianceTexture;
 
@@ -65,6 +69,8 @@ Sampler2D brdfLutTexture;
 
 [[vk::binding(3, 2)]]
 SamplerCube environmentTexture;
+
+
 
 struct VSOutput
 {
@@ -117,6 +123,7 @@ static const int DEBUG_SPECULAR_IBL_ONLY = 7;
 static const int DEBUG_REFLECTION_VECTOR = 8;
 static const int DEBUG_REFLECTION_FACE = 9;
 static const int DEBUG_AO = 10;
+static const int DEBUG_EMISSIVE = 11;
 
 float3 FresnelSchlick(float cosTheta, float3 F0)
 {
@@ -214,31 +221,29 @@ float4 DebugCubemapFaceColor(float3 dir, float alpha)
 }
 
 [shader("fragment")]
-float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
-{   
+float4 fragMain(VSOutput input, bool isFrontFace: SV_IsFrontFace) : SV_Target
+{
     float4 texColor = baseColorTexture.Sample(input.fragTexCoord);
     float4 baseColor = texColor * pc.baseColorFactor;
 
     bool isMaskMaterial = pc.alphaModeParams.x > 0.5;
     bool isBlendMaterial = pc.alphaModeParams.y > 0.5;
+    float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
 
-    float alphaCutoff = pc.materialParams.w;
-
-    float aoSample = occlusionTexture.Sample(input.fragTexCoord).r;
-    float occlusionStrength = pc.alphaModeParams.z;
-    float ao = lerp(1.0, aoSample, saturate(occlusionStrength));
-    
-
-    if (isMaskMaterial && baseColor.a < alphaCutoff)
+    if (isMaskMaterial && baseColor.a < pc.materialParams.w)
     {
         discard;
     }
 
-    float normalScale = pc.materialParams.z;
+    float aoSample = occlusionTexture.Sample(input.fragTexCoord).r;
+    float ao = lerp(1.0, aoSample, saturate(pc.alphaModeParams.z));
+
+    float3 emissiveSample = emissiveTexture.Sample(input.fragTexCoord).rgb;
+    float3 emissive = emissiveSample * pc.emissiveFactor.rgb;
 
     float3 tangentNormal = normalTexture.Sample(input.fragTexCoord).xyz;
     tangentNormal = tangentNormal * 2.0 - 1.0;
-    tangentNormal.xy *= normalScale;
+    tangentNormal.xy *= pc.materialParams.z;
     tangentNormal = normalize(tangentNormal);
 
     float3 T = normalize(input.fragTangent);
@@ -256,7 +261,6 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
     float3 N = normalize(mul(tangentNormal, TBN));
 
     float3 mrSample = metallicRoughnessTexture.Sample(input.fragTexCoord).rgb;
-
     float metallic = saturate(pc.materialParams.x * mrSample.b);
     float roughness = clamp(pc.materialParams.y * mrSample.g, 0.08, 1.0);
 
@@ -288,8 +292,6 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         }
 
         float3 reflection = environmentTexture.SampleLevel(R, skyboxLod).rgb;
-        float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
-
         return float4(reflection * skyboxExposure, outputAlpha);
     }
 
@@ -343,18 +345,18 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
             R = RotateEnvironmentY(R, environmentRotation);
         }
 
-       float maxPrefilterMip = max(ubo.specularDebugParams.z, 0.0);
-       float roughnessMipScale = ubo.specularDebugParams.w;
-       float roughnessMipBias = ubo.specularCurveParams.x;
+        float maxPrefilterMip = max(ubo.specularDebugParams.z, 0.0);
+        float roughnessMipScale = ubo.specularDebugParams.w;
+        float roughnessMipBias = ubo.specularCurveParams.x;
 
-       float prefilterLod =
-            roughness * maxPrefilterMip * roughnessMipScale
-            + roughnessMipBias;
+        float prefilterLod =
+            roughness * maxPrefilterMip * roughnessMipScale +
+            roughnessMipBias;
 
-       if (ubo.specularDebugParams.x > 0.5)
-            {
-                prefilterLod = ubo.specularDebugParams.y;
-            }
+        if (ubo.specularDebugParams.x > 0.5)
+        {
+            prefilterLod = ubo.specularDebugParams.y;
+        }
 
         prefilterLod = clamp(prefilterLod, 0.0, maxPrefilterMip);
 
@@ -364,18 +366,17 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
         specularIBL = prefiltered * (Fibl * brdf.x + brdf.y);
     }
 
-    float3 color = directLighting;
+    float3 lightingColor = directLighting;
 
     if (enableIBL)
     {
         float3 iblDiffuse = diffuseIBL * diffuseIBLIntensity;
         float3 iblSpecular = specularIBL * specularIBLIntensity;
 
-        color += (iblDiffuse + iblSpecular) * iblIntensity;
+        lightingColor += (iblDiffuse + iblSpecular) * iblIntensity;
     }
 
     int debugViewMode = ubo.debugParams.x;
-    float outputAlpha = isBlendMaterial ? baseColor.a : 1.0;
 
     if (debugViewMode == DEBUG_ALBEDO)
     {
@@ -435,29 +436,31 @@ float4 fragMain(VSOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 
     if (debugViewMode == DEBUG_AO)
     {
-       return float4(ao.xxx, outputAlpha);
-
+        return float4(ao.xxx, outputAlpha);
     }
 
-
+    if (debugViewMode == DEBUG_EMISSIVE)
+    {
+        return float4(emissive, outputAlpha);
+    }
 
     float postExposure = ubo.postProcessParams.x;
     bool toneMappingEnabled = ubo.postProcessParams.y > 0.5;
     bool gammaEnabled = ubo.postProcessParams.z > 0.5;
 
-    color *= postExposure;
+    lightingColor *= postExposure;
 
     if (toneMappingEnabled)
     {
-        color = ToneMapACES(color);
+        lightingColor = ToneMapACES(lightingColor);
     }
+
+    float3 finalColor = lightingColor + emissive;
 
     if (gammaEnabled)
     {
-        color = ApplyGamma(color);
+        finalColor = ApplyGamma(finalColor);
     }
 
-    
-
-    return float4(color, outputAlpha);
+    return float4(finalColor, outputAlpha);
 }

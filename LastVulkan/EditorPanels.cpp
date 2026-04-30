@@ -330,7 +330,8 @@ namespace EditorPanels
                 "Specular IBL Only",
                 "Reflection Vector",
                 "Reflection Face",
-                "AO"
+                "AO",
+                "Emissive"
             };
 
             ImGui::Combo(

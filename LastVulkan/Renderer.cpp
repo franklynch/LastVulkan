@@ -390,12 +390,22 @@ void Renderer::createDescriptorSetLayout()
             .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
             .setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
-        std::array<vk::DescriptorSetLayoutBinding, 4> bindings = {
+        vk::DescriptorSetLayoutBinding emissiveBinding{};
+        emissiveBinding
+            .setBinding(4)
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDescriptorCount(1)
+            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+
+        std::array<vk::DescriptorSetLayoutBinding, 5> bindings = {
             baseColorBinding,
             normalBinding,
             metallicRoughnessBinding,
-            aoBinding
+            aoBinding,
+            emissiveBinding
         };
+
+
 
         vk::DescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.setBindings(bindings);
@@ -1622,11 +1632,15 @@ void Renderer::createMaterialDescriptorSets()
         MaterialImageWrite aoWrite =
             materials[i]->makeOcclusionImageWrite(*materialDescriptorSets[i], 3);
 
-        std::array<vk::WriteDescriptorSet, 4> descriptorWrites = {
+        MaterialImageWrite emissiveWrite =
+            materials[i]->makeEmissiveImageWrite(*materialDescriptorSets[i], 4);
+
+        std::array<vk::WriteDescriptorSet, 5> descriptorWrites = {
             baseColorWrite.write,
             normalWrite.write,
             metallicRoughnessWrite.write,
-            aoWrite.write
+            aoWrite.write,
+            emissiveWrite.write
         };
 
         device.updateDescriptorSets(descriptorWrites, nullptr);
@@ -1962,8 +1976,12 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         pushData.alphaModeParams = glm::vec4(
             isMaskMaterial ? 1.0f : 0.0f,
             0.0f, // isBlend = false in opaque/mask pass
-            0.0f,
+            renderableMaterial.getOcclusionStrength(),
             0.0f);
+
+        
+        pushData.emissiveFactor =
+            glm::vec4(renderableMaterial.getEmissiveFactor(), 1.0f);
 
         
 
