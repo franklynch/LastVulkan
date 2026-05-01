@@ -94,20 +94,26 @@ public:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
-   
+    void createHdrColorResources();
 
-
+    void createPostProcessDescriptorSetLayout();
 
 
     void focusSelectedRenderable();
 
     void resetDefaultSceneLayout();
+    void createPostProcessSampler();
+    
 
     void cleanupDescriptorResources();
+    void createPostProcessPipeline();
+    void createPostProcessDescriptorSet();
 
     void updateCameraControls();
 
-    
+    void drawPostProcessToSwapchain(
+        vk::raii::CommandBuffer& commandBuffer,
+        uint32_t imageIndex);
 
     void updateUniformBuffer(uint32_t currentFrame);
     void recordCommandBuffer(uint32_t imageIndex);
@@ -136,6 +142,11 @@ public:
         vk::CommandBuffer cmd,
         vk::Image image,
         vk::ImageAspectFlags aspectMask);
+
+    void transitionToShaderReadOnly(
+        vk::CommandBuffer cmd,
+        vk::Image image,
+        vk::ImageLayout oldLayout);
 
 
 
@@ -206,7 +217,14 @@ private:
     std::unique_ptr<IrradianceRenderer> irradianceRenderer;
     std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
-   
+    vk::raii::DescriptorSetLayout postProcessDescriptorSetLayout{ nullptr };
+    vk::raii::PipelineLayout postProcessPipelineLayout{ nullptr };
+    vk::raii::Pipeline postProcessPipeline{ nullptr };
+
+    vk::raii::Sampler postProcessSampler{ nullptr };
+
+    vk::raii::DescriptorPool postProcessDescriptorPool{ nullptr };
+    vk::raii::DescriptorSets postProcessDescriptorSets{ nullptr };
 
 
     
@@ -294,6 +312,12 @@ private:
     vk::raii::Image             depthImage = nullptr;
     vk::raii::DeviceMemory      depthImageMemory = nullptr;
     vk::raii::ImageView         depthImageView = nullptr;
+
+    vk::raii::Image hdrColorImage{ nullptr };
+    vk::raii::DeviceMemory hdrColorMemory{ nullptr };
+    vk::raii::ImageView hdrColorView{ nullptr };
+
+    vk::Format hdrFormat = vk::Format::eR16G16B16A16Sfloat;
 
     std::vector<vk::raii::CommandBuffer> commandBuffers;
 

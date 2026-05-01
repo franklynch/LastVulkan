@@ -216,5 +216,7 @@
     <None Include="shaders\irradiance_frag.slang" />
     <None Include="shaders\prefilter_vert.slang" />
     <None Include="shaders\prefilter_frag.slang" />
+    <None Include="shaders\post_fullscreen.vert" />
+    <None Include="shaders\post_hdr.frag" />
   </ItemGroup>
 </Project>
