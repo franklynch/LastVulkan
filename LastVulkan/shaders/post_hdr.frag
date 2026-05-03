@@ -1,6 +1,9 @@
 [[vk::binding(0, 0)]]
 Sampler2D hdrTexture;
 
+[[vk::binding(1, 0)]]
+Sampler2D bloomTexture;
+
 struct PostParams
 {
     float exposure;
@@ -31,7 +34,15 @@ float3 ToneMapACES(float3 x)
 [shader("fragment")]
 float4 main(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target
 {
-    float3 color = hdrTexture.Sample(uv).rgb;
+    float3 hdr = hdrTexture.Sample(uv).rgb;
+    float3 bloom = bloomTexture.Sample(uv).rgb;
+
+    float bloomStrength = 0.15;
+
+    float3 color = hdr + bloom * bloomStrength;
+    
+    
+    
 
     color *= pc.exposure;
 

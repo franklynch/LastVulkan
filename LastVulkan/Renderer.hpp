@@ -51,7 +51,6 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    void drawFrame();
 
 
     
@@ -77,12 +76,16 @@ public:
     bool hasStencilComponent(vk::Format format);
 
 
+    void drawFrame();
+
+
     void loadModel();
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
 
     void createMaterialDescriptorSets();
+    void createBloomExtractDescriptorSet();
 
     void createCommandBuffers();
     void createSyncObjects();
@@ -98,6 +101,24 @@ public:
 
     void createPostProcessDescriptorSetLayout();
 
+    void createBloomBrightResources();
+    void createBloomExtractDescriptorSetLayout();
+    void createBloomBlurDescriptorSetLayout();
+
+	void drawBloomExtract(vk::raii::CommandBuffer& commandBuffer);     
+
+	void createBloomBlurPipeline();
+
+    void createBloomExtractPipeline();
+
+    void createBloomBlurResources();
+    void createBloomBlurDescriptorSets();
+
+    void drawBloomBlur(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::ImageView outputView,
+        vk::DescriptorSet inputSet,
+        glm::vec2 direction);
 
     void focusSelectedRenderable();
 
@@ -198,7 +219,28 @@ private:
     void createRenderablesFromGltf(const GltfSceneData& imported);
 
 
- 
+    vk::raii::Image bloomBrightImage{ nullptr };
+    vk::raii::DeviceMemory bloomBrightMemory{ nullptr };
+    vk::raii::ImageView bloomBrightView{ nullptr };
+
+    vk::raii::DescriptorSetLayout bloomExtractDescriptorSetLayout{ nullptr };
+    vk::raii::PipelineLayout bloomExtractPipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomExtractPipeline{ nullptr };
+
+    vk::raii::DescriptorPool bloomExtractDescriptorPool{ nullptr };
+    vk::raii::DescriptorSets bloomExtractDescriptorSets{ nullptr };
+
+    vk::raii::Image bloomBlurTempImage{ nullptr };
+    vk::raii::DeviceMemory bloomBlurTempMemory{ nullptr };
+    vk::raii::ImageView bloomBlurTempView{ nullptr };
+
+    vk::raii::DescriptorSetLayout bloomBlurDescriptorSetLayout{ nullptr };
+    vk::raii::PipelineLayout bloomBlurPipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomBlurPipeline{ nullptr };
+
+    vk::raii::DescriptorPool bloomBlurDescriptorPool{ nullptr };
+    vk::raii::DescriptorSets bloomBlurFromBrightDescriptorSets{ nullptr };
+    vk::raii::DescriptorSets bloomBlurFromTempDescriptorSets{ nullptr };
 
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;

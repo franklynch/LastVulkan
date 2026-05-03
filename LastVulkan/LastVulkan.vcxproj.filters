@@ -218,5 +218,7 @@
     <None Include="shaders\prefilter_frag.slang" />
     <None Include="shaders\post_fullscreen.vert" />
     <None Include="shaders\post_hdr.frag" />
+    <None Include="shaders\bloom_extract.frag" />
+    <None Include="shaders\bloom_blur.frag" />
   </ItemGroup>
 </Project>
