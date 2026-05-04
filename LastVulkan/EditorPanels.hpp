@@ -82,6 +82,14 @@ namespace EditorPanels
         bool& gammaEnabled,
         float& postExposure,
 
+        bool& bloomEnabled,
+        float& bloomThreshold,
+        float& bloomKnee,
+        float& bloomStrength,
+
+        float& bloomIntensity,
+        float& bloomUpsampleRadius,
+
         float& environmentRotationDegrees,
         bool& rotateSkybox,
         bool& rotateIBLLighting,

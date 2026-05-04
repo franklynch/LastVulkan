@@ -23,6 +23,7 @@ import vulkan_hpp;
 #include "ImageUtils.hpp"
 #include "MeshData.hpp"
 #include "ModelLoader.hpp"
+#include "GltfLoader.hpp"
 #include "Texture2D.hpp"
 #include "GpuMesh.hpp"
 #include "Material.hpp"
@@ -50,9 +51,10 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    void drawFrame();
 
-private:
+
+    
+    
     void init();
 
     void cleanupSwapChain();
@@ -74,12 +76,16 @@ private:
     bool hasStencilComponent(vk::Format format);
 
 
+    void drawFrame();
+
+
     void loadModel();
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
 
     void createMaterialDescriptorSets();
+    void createBloomExtractDescriptorSet();
 
     void createCommandBuffers();
     void createSyncObjects();
@@ -91,20 +97,74 @@ private:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
+    void createHdrColorResources();
 
+    void createPostProcessDescriptorSetLayout();
 
+    void createBloomBrightResources();
+    void createBloomExtractDescriptorSetLayout();
+    void createBloomBlurDescriptorSetLayout();
 
+	void drawBloomExtract(vk::raii::CommandBuffer& commandBuffer);     
 
+	void createBloomBlurPipeline();
+
+    void createBloomExtractPipeline();
+
+    void createBloomBlurResources();
+    void createBloomBlurDescriptorSets();
+
+    void drawBloomBlur(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::ImageView outputView,
+        vk::DescriptorSet inputSet,
+        glm::vec2 direction);
+
+    void drawBloomDownsample(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::ImageView outputView,
+        vk::DescriptorSet inputSet,
+        uint32_t outputWidth,
+        uint32_t outputHeight,
+        uint32_t inputWidth,
+        uint32_t inputHeight);
+
+    void createBloomUpsamplePipeline();
+    void createBloomUpsampleDescriptorSets();
+
+    void drawBloomUpsample(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::ImageView outputView,
+        vk::DescriptorSet inputSet,
+        uint32_t outputWidth,
+        uint32_t outputHeight,
+        uint32_t inputWidth,
+        uint32_t inputHeight);
+
+    void createBloomDownsamplePipeline();
 
     void focusSelectedRenderable();
 
     void resetDefaultSceneLayout();
+    void createPostProcessSampler();
+    void createBloomDownsampleDescriptorSets();
+    
 
     void cleanupDescriptorResources();
+    void createPostProcessPipeline();
+    void createPostProcessDescriptorSet();
+
+    void createBloomDownsampleResources();
 
     void updateCameraControls();
 
+    void drawPostProcessToSwapchain(
+        vk::raii::CommandBuffer& commandBuffer,
+        uint32_t imageIndex);
+
     void updateUniformBuffer(uint32_t currentFrame);
+
+
     void recordCommandBuffer(uint32_t imageIndex);
 
     void transitionImageLayout(
@@ -132,6 +192,11 @@ private:
         vk::Image image,
         vk::ImageAspectFlags aspectMask);
 
+    void transitionToShaderReadOnly(
+        vk::CommandBuffer cmd,
+        vk::Image image,
+        vk::ImageLayout oldLayout);
+
 
 
     static uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
@@ -158,6 +223,53 @@ private:
     BufferUtils         bufferUtils;
     ImageUtils          imageUtils;
 
+    struct GltfTextureUploadMaps
+    {
+        std::vector<int> baseColor;
+        std::vector<int> normal;
+        std::vector<int> metallicRoughness;
+        std::vector<int> occlusion;
+        std::vector<int> emissive;
+    };
+
+    void clearSceneResources();
+    void createDefaultMaterialTextures();
+    void setupCameraDefaults();
+
+    GltfSceneData loadCurrentGltfScene();
+
+    GltfTextureUploadMaps uploadGltfTextures(const GltfSceneData& imported);
+
+    void createMaterialsFromGltf(
+        const GltfSceneData& imported,
+        const GltfTextureUploadMaps& textureMaps);
+
+    void createRenderablesFromGltf(const GltfSceneData& imported);
+
+
+    vk::raii::Image bloomBrightImage{ nullptr };
+    vk::raii::DeviceMemory bloomBrightMemory{ nullptr };
+    vk::raii::ImageView bloomBrightView{ nullptr };
+
+    vk::raii::DescriptorSetLayout bloomExtractDescriptorSetLayout{ nullptr };
+    vk::raii::PipelineLayout bloomExtractPipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomExtractPipeline{ nullptr };
+
+    vk::raii::DescriptorPool bloomExtractDescriptorPool{ nullptr };
+    vk::raii::DescriptorSets bloomExtractDescriptorSets{ nullptr };
+
+    vk::raii::Image bloomBlurTempImage{ nullptr };
+    vk::raii::DeviceMemory bloomBlurTempMemory{ nullptr };
+    vk::raii::ImageView bloomBlurTempView{ nullptr };
+
+    vk::raii::DescriptorSetLayout bloomBlurDescriptorSetLayout{ nullptr };
+    vk::raii::PipelineLayout bloomBlurPipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomBlurPipeline{ nullptr };
+
+    vk::raii::DescriptorPool bloomBlurDescriptorPool{ nullptr };
+    vk::raii::DescriptorSets bloomBlurFromBrightDescriptorSets{ nullptr };
+    vk::raii::DescriptorSets bloomBlurFromTempDescriptorSets{ nullptr };
+
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
 
@@ -175,6 +287,43 @@ private:
     std::unique_ptr<IrradianceRenderer> irradianceRenderer;
     std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
+    vk::raii::DescriptorSetLayout postProcessDescriptorSetLayout{ nullptr };
+    vk::raii::PipelineLayout postProcessPipelineLayout{ nullptr };
+    vk::raii::Pipeline postProcessPipeline{ nullptr };
+
+    vk::raii::Sampler postProcessSampler{ nullptr };
+
+    vk::raii::DescriptorPool postProcessDescriptorPool{ nullptr };
+    vk::raii::DescriptorSets postProcessDescriptorSets{ nullptr };
+
+    struct BloomMipResource
+    {
+        vk::raii::Image image{ nullptr };
+        vk::raii::DeviceMemory memory{ nullptr };
+        vk::raii::ImageView view{ nullptr };
+        uint32_t width = 0;
+        uint32_t height = 0;
+    };
+
+    std::vector<BloomMipResource> bloomDownsampleChain;
+
+    uint32_t bloomDownsampleLevels = 3;
+
+    vk::raii::DescriptorPool bloomDownsampleDescriptorPool{ nullptr };
+    std::vector<vk::raii::DescriptorSets> bloomDownsampleDescriptorSets;
+
+    vk::raii::PipelineLayout bloomDownsamplePipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomDownsamplePipeline{ nullptr };
+
+   
+
+    vk::raii::PipelineLayout bloomUpsamplePipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomUpsamplePipeline{ nullptr };
+
+    vk::raii::DescriptorPool bloomUpsampleDescriptorPool{ nullptr };
+    std::vector<vk::raii::DescriptorSets> bloomUpsampleDescriptorSets;
+    vk::raii::DescriptorSets bloomUpsampleFinalDescriptorSet{ nullptr };
+    
 
     float rotationSpeed = 10.0f;
 
@@ -211,6 +360,10 @@ private:
     float frameTimeMs = 0.0f;
     float fps = 0.0f;
 
+    
+
+ 
+
     Material* getSelectedRenderableMaterial();
     int getMaterialIndex(const Material& material) const;
 
@@ -227,6 +380,13 @@ private:
 
     std::vector<std::unique_ptr<Texture2D>>     metallicRoughnessTextures;
     std::unique_ptr<Texture2D>                  defaultMetallicRoughnessTexture;
+
+    
+    std::vector<std::unique_ptr<Texture2D>>     aoTextures;
+    std::unique_ptr<Texture2D>                  defaultAoTexture;
+
+    std::vector<std::unique_ptr<Texture2D>>     emissiveTextures;
+    std::unique_ptr<Texture2D> defaultEmissiveTexture;
 
 
     vk::raii::SwapchainKHR              swapChain = nullptr;
@@ -248,6 +408,12 @@ private:
     vk::raii::Image             depthImage = nullptr;
     vk::raii::DeviceMemory      depthImageMemory = nullptr;
     vk::raii::ImageView         depthImageView = nullptr;
+
+    vk::raii::Image hdrColorImage{ nullptr };
+    vk::raii::DeviceMemory hdrColorMemory{ nullptr };
+    vk::raii::ImageView hdrColorView{ nullptr };
+
+    vk::Format hdrFormat = vk::Format::eR16G16B16A16Sfloat;
 
     std::vector<vk::raii::CommandBuffer> commandBuffers;
 
@@ -413,6 +579,12 @@ private:
         vk::Sampler sampler,
         vk::ImageView view) const;
 
+    float bloomThreshold = 1.0f;
+    float bloomKnee = 0.5f;
+    float bloomStrength = 0.15f;
+    bool  bloomEnabled = true;
+    float bloomIntensity = 0.04f;
+    float bloomUpsampleRadius = 1.0f;
   
 
 };

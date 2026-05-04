@@ -10,4 +10,6 @@ struct EditorUiState
     bool wireframeRequested = false;
 
     int debugViewMode = 0;
+
+  
 };

@@ -5,6 +5,8 @@
 #include <string>
 #include <functional>
 
+
+
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
 #else
@@ -130,6 +132,8 @@ struct UniformBufferObject
 
 };
 
+
+
 struct PushConstantData
 {
     glm::mat4 model{ 1.0f };
@@ -138,6 +142,7 @@ struct PushConstantData
     glm::vec4 materialParams{ 1.0f, 1.0f, 1.0f, 0.0f }; // x=metallic, y=roughness, z=normalScale, w=alphaCutoff
     glm::vec4 alphaModeParams{ 0.0f, 0.0f, 0.0f, 0.0f };
     glm::vec4 emissiveFactor; // x=isMask, y=isBlend, z=occlusionStrength, w=unused
+    
 };
 
 struct EquirectToCubePushConstants

@@ -298,6 +298,14 @@ namespace EditorPanels
         bool& gammaEnabled,
         float& postExposure,
 
+        bool& bloomEnabled,
+        float& bloomThreshold,
+        float& bloomKnee,
+        float& bloomStrength,
+
+        float& bloomIntensity,
+        float& bloomUpsampleRadius,
+
         float& environmentRotationDegrees,
         bool& rotateSkybox,
         bool& rotateIBLLighting,
@@ -445,6 +453,13 @@ namespace EditorPanels
             ImGui::TreePop();
         }
 
+        ImGui::Separator();
+        ImGui::Checkbox("Bloom Enabled", &bloomEnabled);
+        ImGui::SliderFloat("Bloom Threshold", &bloomThreshold, 0.0f, 5.0f);
+        ImGui::SliderFloat("Bloom Knee", &bloomKnee, 0.0f, 2.0f);
+        ImGui::SliderFloat("Bloom Strength", &bloomStrength, 0.0f, 2.0f);
+        ImGui::SliderFloat("Bloom Intensity", &bloomIntensity, 0.0f, 0.25f);
+        ImGui::SliderFloat("Bloom Upsample Radius", &bloomUpsampleRadius, 0.1f, 3.0f);
       
 
         if (ImGui::TreeNodeEx("Specular / PMREM Debug", ImGuiTreeNodeFlags_DefaultOpen))

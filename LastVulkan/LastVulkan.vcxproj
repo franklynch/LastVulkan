@@ -145,7 +145,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\bloom_blur.frag" />
+    <None Include="shaders\bloom_downsample.frag" />
     <None Include="shaders\bloom_extract.frag" />
+    <None Include="shaders\bloom_upsample.frag" />
     <None Include="shaders\brdf_lut_frag.slang" />
     <None Include="shaders\brdf_lut_vert.slang" />
     <None Include="shaders\equirect_to_cube_frag.slang" />

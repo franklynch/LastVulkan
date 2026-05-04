@@ -120,15 +120,41 @@ public:
         vk::DescriptorSet inputSet,
         glm::vec2 direction);
 
+    void drawBloomDownsample(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::ImageView outputView,
+        vk::DescriptorSet inputSet,
+        uint32_t outputWidth,
+        uint32_t outputHeight,
+        uint32_t inputWidth,
+        uint32_t inputHeight);
+
+    void createBloomUpsamplePipeline();
+    void createBloomUpsampleDescriptorSets();
+
+    void drawBloomUpsample(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::ImageView outputView,
+        vk::DescriptorSet inputSet,
+        uint32_t outputWidth,
+        uint32_t outputHeight,
+        uint32_t inputWidth,
+        uint32_t inputHeight);
+
+    void createBloomDownsamplePipeline();
+
     void focusSelectedRenderable();
 
     void resetDefaultSceneLayout();
     void createPostProcessSampler();
+    void createBloomDownsampleDescriptorSets();
     
 
     void cleanupDescriptorResources();
     void createPostProcessPipeline();
     void createPostProcessDescriptorSet();
+
+    void createBloomDownsampleResources();
 
     void updateCameraControls();
 
@@ -137,6 +163,8 @@ public:
         uint32_t imageIndex);
 
     void updateUniformBuffer(uint32_t currentFrame);
+
+
     void recordCommandBuffer(uint32_t imageIndex);
 
     void transitionImageLayout(
@@ -268,7 +296,33 @@ private:
     vk::raii::DescriptorPool postProcessDescriptorPool{ nullptr };
     vk::raii::DescriptorSets postProcessDescriptorSets{ nullptr };
 
+    struct BloomMipResource
+    {
+        vk::raii::Image image{ nullptr };
+        vk::raii::DeviceMemory memory{ nullptr };
+        vk::raii::ImageView view{ nullptr };
+        uint32_t width = 0;
+        uint32_t height = 0;
+    };
 
+    std::vector<BloomMipResource> bloomDownsampleChain;
+
+    uint32_t bloomDownsampleLevels = 3;
+
+    vk::raii::DescriptorPool bloomDownsampleDescriptorPool{ nullptr };
+    std::vector<vk::raii::DescriptorSets> bloomDownsampleDescriptorSets;
+
+    vk::raii::PipelineLayout bloomDownsamplePipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomDownsamplePipeline{ nullptr };
+
+   
+
+    vk::raii::PipelineLayout bloomUpsamplePipelineLayout{ nullptr };
+    vk::raii::Pipeline bloomUpsamplePipeline{ nullptr };
+
+    vk::raii::DescriptorPool bloomUpsampleDescriptorPool{ nullptr };
+    std::vector<vk::raii::DescriptorSets> bloomUpsampleDescriptorSets;
+    vk::raii::DescriptorSets bloomUpsampleFinalDescriptorSet{ nullptr };
     
 
     float rotationSpeed = 10.0f;
@@ -525,6 +579,12 @@ private:
         vk::Sampler sampler,
         vk::ImageView view) const;
 
+    float bloomThreshold = 1.0f;
+    float bloomKnee = 0.5f;
+    float bloomStrength = 0.15f;
+    bool  bloomEnabled = true;
+    float bloomIntensity = 0.04f;
+    float bloomUpsampleRadius = 1.0f;
   
 
 };

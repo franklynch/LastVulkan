@@ -220,5 +220,7 @@
     <None Include="shaders\post_hdr.frag" />
     <None Include="shaders\bloom_extract.frag" />
     <None Include="shaders\bloom_blur.frag" />
+    <None Include="shaders\bloom_downsample.frag" />
+    <None Include="shaders\bloom_upsample.frag" />
   </ItemGroup>
 </Project>

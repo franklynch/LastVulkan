@@ -290,9 +290,7 @@ void IrradianceRenderer::createPipeline()
             nullptr,
             pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
 
-    std::cout << "Created irradiance pipeline\n";
-    std::cout << "irradiancePipelineLayout: " << (irradiancePipelineLayout != nullptr) << "\n";
-    std::cout << "irradiancePipeline: " << (irradiancePipeline != nullptr) << "\n";
+    
 }
 
 void IrradianceRenderer::render(EnvironmentResources& environment)

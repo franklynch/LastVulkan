@@ -40,6 +40,12 @@ struct GltfMaterialData
 
     int normalImageIndex = -1;
     float normalScale = 1.0f;
+
+    int occlusionImageIndex = -1;
+    float occlusionStrength = 1.0f;
+
+    int emissiveImageIndex = -1;
+    glm::vec3 emissiveFactor{ 0.0f, 0.0f, 0.0f };
 };
 
 struct GltfSceneData
