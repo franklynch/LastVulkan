@@ -11,6 +11,7 @@
 #include "RendererTypes.hpp"
 #include "EditorUiState.hpp"
 #include "MeshData.hpp"
+#include "PostProcessRenderer.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>

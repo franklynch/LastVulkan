@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <memory>
 
 #include <cstring>
 #include <iostream>
@@ -24,6 +25,8 @@
 
 #include "DdsUtils.hpp"
 #include "ShaderUtils.hpp"
+#include "TransitionUtils.hpp"
+#include "PostProcessRenderer.hpp"
 
 
 
@@ -114,31 +117,32 @@ void Renderer::init()
     
     
     
-    createPostProcessDescriptorSetLayout();
-    createBloomExtractDescriptorSetLayout();
-    createBloomBlurDescriptorSetLayout();
-    
-        
-    createColorResources();
-    createHdrColorResources();
-    createBloomBrightResources();
-    createBloomBlurResources();
-    createBloomDownsampleResources();
-    createDepthResources();
-    
-    createPostProcessSampler();
+    postProcessRenderer = std::make_unique<PostProcessRenderer>(
+        vkContext,
+        bufferUtils,
+        imageUtils);
 
+    
+
+
+    postProcessRenderer->init(
+        swapChainExtent,
+        swapChainSurfaceFormat.format);
+
+
+       
+    
+               
+    createColorResources();
+    
+    
+
+    createDepthResources();
+   
     createGraphicsPipeline();
     createSkyboxPipeline();
-    createPostProcessPipeline();
-    createBloomExtractPipeline();
-    createBloomBlurPipeline();
-    createBloomDownsamplePipeline();
-    createBloomUpsamplePipeline();
-
     
-
-    
+   
     
     
 
@@ -170,12 +174,11 @@ void Renderer::init()
     createDescriptorSets();
     createMaterialDescriptorSets();
 
-    createPostProcessDescriptorSet();
-    createBloomExtractDescriptorSet();
-    createBloomBlurDescriptorSets();
-    createBloomDownsampleDescriptorSets();
-    createBloomUpsampleDescriptorSets();
-
+    
+    
+    
+    
+    
 
     
     
@@ -249,68 +252,22 @@ void Renderer::cleanupSwapChain()
     skyboxPipeline = nullptr;
     skyboxPipelineLayout = nullptr;
 
-    postProcessPipeline = nullptr;
-    postProcessPipelineLayout = nullptr;
-
-    bloomBlurPipeline = nullptr;
-    bloomBlurPipelineLayout = nullptr;
-
-    bloomUpsamplePipeline = nullptr;
-    bloomUpsamplePipelineLayout = nullptr;
-
-    postProcessDescriptorSets.clear();
-    bloomExtractDescriptorSets.clear();
-    bloomBlurFromBrightDescriptorSets.clear();
-    bloomBlurFromTempDescriptorSets.clear();
-
-
-    bloomDownsampleDescriptorSets.clear();
-    bloomDownsampleDescriptorPool = nullptr;
-    bloomDownsampleChain.clear();
-
-    postProcessDescriptorPool = nullptr;
-    bloomExtractDescriptorPool = nullptr;
-    bloomBlurDescriptorPool = nullptr;
-
-
-    bloomExtractPipeline = nullptr;
-    bloomExtractPipelineLayout = nullptr;
-        
-   
-
-    
-
-   
-
-    bloomUpsampleDescriptorSets.clear();
-    bloomUpsampleFinalDescriptorSet.clear();
-    bloomUpsampleDescriptorPool = nullptr;
     
     
     
-    
-    postProcessSampler = nullptr;
        
 
     colorImageView = nullptr;
     colorImageMemory = nullptr;
     colorImage = nullptr;
 
-    hdrColorView = nullptr;
-    hdrColorMemory = nullptr;
-    hdrColorImage = nullptr;
+    
 
     depthImageView = nullptr;
     depthImageMemory = nullptr;
     depthImage = nullptr;
 
-    bloomBrightView = nullptr;
-    bloomBrightMemory = nullptr;
-    bloomBrightImage = nullptr;
-
-    bloomBlurTempView = nullptr;
-    bloomBlurTempMemory = nullptr;
-    bloomBlurTempImage = nullptr;
+    
 
     swapChainImageViews.clear();
     swapChainImages.clear();
@@ -336,34 +293,31 @@ void Renderer::recreateSwapChain()
     createSwapChain();
     createImageViews();
 
+    
+
+   
+
+    postProcessRenderer->recreate(
+        swapChainExtent,
+        swapChainSurfaceFormat.format);
+
+    
+
     depthFormat = findDepthFormat();
     depthAspect = hasStencilComponent(depthFormat)
         ? (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)
         : vk::ImageAspectFlagBits::eDepth;
 
     createColorResources();
-    createHdrColorResources();
-    createBloomBrightResources();
-    createBloomBlurResources();
-    createBloomDownsampleResources();
     createDepthResources();
-
-    createPostProcessSampler();
 
     createGraphicsPipeline();
     createSkyboxPipeline();
-
-    createPostProcessPipeline();
-    createBloomExtractPipeline();
-    createBloomBlurPipeline();
-    createBloomDownsamplePipeline();
-    createBloomUpsamplePipeline();
-
-    createPostProcessDescriptorSet();
-    createBloomExtractDescriptorSet();
-    createBloomBlurDescriptorSets();
-    createBloomDownsampleDescriptorSets();
-    createBloomUpsampleDescriptorSets();
+    
+    
+    
+    
+    
 
     renderFinishedSemaphores.clear();
     renderFinishedSemaphores.reserve(swapChainImages.size());
@@ -732,8 +686,11 @@ void Renderer::createGraphicsPipeline()
         .setLayout(*pipelineLayout)
         .setRenderPass(vk::RenderPass{});
 
+    std::array<vk::Format, 1> colorAttachmentFormats = {
+        postProcessRenderer->getHdrFormat()};
+
     pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(hdrFormat)
+		.setColorAttachmentFormats(colorAttachmentFormats)
         .setDepthAttachmentFormat(depthFormat);
 
     // -------------------------
@@ -835,7 +792,7 @@ void Renderer::createGraphicsPipeline()
 
 void Renderer::createColorResources()
 {
-    vk::Format colorFormat = hdrFormat;
+    vk::Format colorFormat = postProcessRenderer->getHdrFormat();
 
     imageUtils.createImage(
         swapChainExtent.width,
@@ -1437,329 +1394,6 @@ void Renderer::createCommandBuffers()
     commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
 }
 
-void Renderer::createHdrColorResources()
-{
-    auto extent = swapChainExtent;
-
-    imageUtils.createImage(
-        extent.width,
-        extent.height,
-        1,
-        vk::SampleCountFlagBits::e1,
-        hdrFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eColorAttachment |
-        vk::ImageUsageFlagBits::eSampled,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        hdrColorImage,
-        hdrColorMemory);
-
-    hdrColorView = imageUtils.createImageView(
-        hdrColorImage,
-        hdrFormat,
-        vk::ImageAspectFlagBits::eColor,
-        1);
-}
-
-
-void Renderer::drawBloomExtract(vk::raii::CommandBuffer& commandBuffer)
-{
-    vk::ClearValue clearColor = vk::ClearColorValue(
-        std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f });
-
-    vk::RenderingAttachmentInfo colorAttachment{};
-    colorAttachment
-        .setImageView(*bloomBrightView)
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(clearColor);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(vk::Rect2D{ {0, 0}, swapChainExtent })
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachment);
-
-    commandBuffer.beginRendering(renderingInfo);
-
-    commandBuffer.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(swapChainExtent.width),
-            static_cast<float>(swapChainExtent.height),
-            0.0f,
-            1.0f));
-
-    commandBuffer.setScissor(
-        0,
-        vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-
-    commandBuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomExtractPipeline);
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomExtractPipelineLayout,
-        0,
-        *bloomExtractDescriptorSets[0],
-        {});
-
-    glm::vec4 params(
-        bloomThreshold,
-        bloomKnee,
-        0.0f,
-        0.0f);
-
-    commandBuffer.pushConstants<glm::vec4>(
-        *bloomExtractPipelineLayout,
-        vk::ShaderStageFlagBits::eFragment,
-        0,
-        params);
-
-    commandBuffer.draw(3, 1, 0, 0);
-
-    commandBuffer.endRendering();
-}
-
-void Renderer::createPostProcessDescriptorSetLayout()
-{
-    auto& device = vkContext.getDevice();
-
-    // HDR scene (input)
-    vk::DescriptorSetLayoutBinding hdrBinding{};
-    hdrBinding
-        .setBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-    // Bloom texture (input)
-    vk::DescriptorSetLayoutBinding bloomBinding{};
-    bloomBinding
-        .setBinding(1)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-    std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {
-        hdrBinding,
-        bloomBinding
-    };
-
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.setBindings(bindings);
-
-    postProcessDescriptorSetLayout =
-        vk::raii::DescriptorSetLayout(device, layoutInfo);
-}
-
-void Renderer::createPostProcessSampler()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setAnisotropyEnable(VK_FALSE)
-        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
-        .setUnnormalizedCoordinates(VK_FALSE)
-        .setCompareEnable(VK_FALSE)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setMinLod(0.0f)
-        .setMaxLod(0.0f);
-
-    postProcessSampler = vk::raii::Sampler(device, samplerInfo);
-}
-
-void Renderer::createPostProcessPipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    auto vertShaderModule =
-        ShaderUtils::createShaderModule(device, "shaders/post_fullscreen.spv");
-
-    auto fragShaderModule =
-        ShaderUtils::createShaderModule(device, "shaders/post_hdr.spv");
-
-    vk::PipelineShaderStageCreateInfo vertStage{};
-    vertStage
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragStage{};
-    fragStage
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array stages = { vertStage, fragStage };
-
-    vk::PipelineVertexInputStateCreateInfo vertexInput{};
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA);
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setAttachments(colorBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PushConstantRange pushRange{};
-    pushRange
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(glm::vec4));
-
-    vk::PipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo
-        .setSetLayouts(*postProcessDescriptorSetLayout)
-        .setPushConstantRanges(pushRange);
-
-    postProcessPipelineLayout =
-        vk::raii::PipelineLayout(device, layoutInfo);
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineChain{};
-
-    pipelineChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(stages)
-        .setPVertexInputState(&vertexInput)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*postProcessPipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    pipelineChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(swapChainSurfaceFormat.format);
-
-    postProcessPipeline =
-        vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
-}
-
-void Renderer::createPostProcessDescriptorSet()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::DescriptorPoolSize poolSize{};
-    poolSize
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(2);
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(1)
-        .setPoolSizes(poolSize);
-
-    postProcessDescriptorPool =
-        vk::raii::DescriptorPool(device, poolInfo);
-
-    vk::DescriptorSetLayout layout = *postProcessDescriptorSetLayout;
-
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo
-        .setDescriptorPool(*postProcessDescriptorPool)
-        .setSetLayouts(layout);
-
-    postProcessDescriptorSets =
-        vk::raii::DescriptorSets(device, allocInfo);
-
-    vk::DescriptorImageInfo hdrInfo{};
-    hdrInfo
-        .setSampler(*postProcessSampler)
-        .setImageView(*hdrColorView)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-    vk::DescriptorImageInfo bloomInfo{};
-    bloomInfo
-        .setSampler(*postProcessSampler)
-        .setImageView(*bloomBrightView)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-    std::array<vk::WriteDescriptorSet, 2> writes{};
-
-    writes[0]
-        .setDstSet(*postProcessDescriptorSets[0])
-        .setDstBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(hdrInfo);
-
-    writes[1]
-        .setDstSet(*postProcessDescriptorSets[0])
-        .setDstBinding(1)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(bloomInfo);
-
-   
-
-    device.updateDescriptorSets(writes, nullptr);
-}
 
 void Renderer::loadModel()
 {
@@ -2083,57 +1717,9 @@ void Renderer::drawPostProcessToSwapchain(
     vk::raii::CommandBuffer& commandBuffer,
     uint32_t imageIndex)
 {
-    if (postProcessDescriptorSets.empty())
-    {
-        throw std::runtime_error(
-            "drawPostProcessToSwapchain: postProcessDescriptorSets is empty");
-    }
-    
-    const auto& extent = swapChainExtent;
-
-    vk::ClearValue clearColor = vk::ClearColorValue(
-        std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f });
-
-    vk::RenderingAttachmentInfo colorAttachment{};
-    colorAttachment
-        .setImageView(*swapChainImageViews[imageIndex])
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(clearColor);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(vk::Rect2D{ {0, 0}, extent })
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachment);
-
-    commandBuffer.beginRendering(renderingInfo);
-
-    commandBuffer.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(extent.width),
-            static_cast<float>(extent.height),
-            0.0f,
-            1.0f));
-
-    commandBuffer.setScissor(
-        0,
-        vk::Rect2D(vk::Offset2D(0, 0), extent));
-
-    commandBuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *postProcessPipeline);
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *postProcessPipelineLayout,
-        0,
-        *postProcessDescriptorSets[0],
-        {});
+    postProcessRenderer->beginFinalPass(
+        commandBuffer,
+        *swapChainImageViews[imageIndex]);
 
     glm::vec4 postParams(
         postExposure,
@@ -2141,542 +1727,17 @@ void Renderer::drawPostProcessToSwapchain(
         gammaEnabled ? 1.0f : 0.0f,
         bloomEnabled ? bloomStrength : 0.0f);
 
-    commandBuffer.pushConstants<glm::vec4>(
-        *postProcessPipelineLayout,
-        vk::ShaderStageFlagBits::eFragment,
-        0,
+    postProcessRenderer->recordFinalComposite(
+        commandBuffer,
         postParams);
-
-    commandBuffer.draw(3, 1, 0, 0);
 
     renderImGui(*commandBuffer);
 
-    commandBuffer.endRendering();
+    postProcessRenderer->endFinalPass(commandBuffer);
 }
 
 
-void Renderer::createBloomBrightResources()
-{
-    imageUtils.createImage(
-        swapChainExtent.width,
-        swapChainExtent.height,
-        1,
-        vk::SampleCountFlagBits::e1,
-        hdrFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eColorAttachment |
-        vk::ImageUsageFlagBits::eSampled,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        bloomBrightImage,
-        bloomBrightMemory);
 
-    bloomBrightView = imageUtils.createImageView(
-        bloomBrightImage,
-        hdrFormat,
-        vk::ImageAspectFlagBits::eColor,
-        1);
-}
-
-void Renderer::createBloomExtractDescriptorSetLayout()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::DescriptorSetLayoutBinding hdrBinding{};
-    hdrBinding
-        .setBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.setBindings(hdrBinding);
-
-    bloomExtractDescriptorSetLayout =
-        vk::raii::DescriptorSetLayout(device, layoutInfo);
-}
-
-void Renderer::createBloomExtractDescriptorSet()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::DescriptorPoolSize poolSize{};
-    poolSize
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1);
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(1)
-        .setPoolSizes(poolSize);
-
-    bloomExtractDescriptorPool =
-        vk::raii::DescriptorPool(device, poolInfo);
-
-    vk::DescriptorSetLayout layout = *bloomExtractDescriptorSetLayout;
-
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo
-        .setDescriptorPool(*bloomExtractDescriptorPool)
-        .setSetLayouts(layout);
-
-    bloomExtractDescriptorSets =
-        vk::raii::DescriptorSets(device, allocInfo);
-
-    vk::DescriptorImageInfo hdrInfo{};
-    hdrInfo
-        .setSampler(*postProcessSampler)
-        .setImageView(*hdrColorView)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-    
-
-   
-
-
-    vk::WriteDescriptorSet write{};
-    write
-        .setDstSet(*bloomExtractDescriptorSets[0])
-        .setDstBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(hdrInfo);
-
-    device.updateDescriptorSets(write, nullptr);
-}
-
-void Renderer::createBloomBlurResources()
-{
-    imageUtils.createImage(
-        swapChainExtent.width,
-        swapChainExtent.height,
-        1,
-        vk::SampleCountFlagBits::e1,
-        hdrFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eColorAttachment |
-        vk::ImageUsageFlagBits::eSampled,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        bloomBlurTempImage,
-        bloomBlurTempMemory);
-
-    bloomBlurTempView = imageUtils.createImageView(
-        bloomBlurTempImage,
-        hdrFormat,
-        vk::ImageAspectFlagBits::eColor,
-        1);
-}
-
-void Renderer::createBloomBlurDescriptorSetLayout()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::DescriptorSetLayoutBinding inputBinding{};
-    inputBinding
-        .setBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.setBindings(inputBinding);
-
-    bloomBlurDescriptorSetLayout =
-        vk::raii::DescriptorSetLayout(device, layoutInfo);
-}
-
-void Renderer::createBloomBlurDescriptorSets()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::DescriptorPoolSize poolSize{};
-    poolSize
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(2);
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(2)
-        .setPoolSizes(poolSize);
-
-    bloomBlurDescriptorPool =
-        vk::raii::DescriptorPool(device, poolInfo);
-
-    vk::DescriptorSetLayout layout = *bloomBlurDescriptorSetLayout;
-
-    vk::DescriptorSetAllocateInfo allocBrightInfo{};
-    allocBrightInfo
-        .setDescriptorPool(*bloomBlurDescriptorPool)
-        .setSetLayouts(layout);
-
-    bloomBlurFromBrightDescriptorSets =
-        vk::raii::DescriptorSets(device, allocBrightInfo);
-
-    vk::DescriptorSetAllocateInfo allocTempInfo{};
-    allocTempInfo
-        .setDescriptorPool(*bloomBlurDescriptorPool)
-        .setSetLayouts(layout);
-
-    bloomBlurFromTempDescriptorSets =
-        vk::raii::DescriptorSets(device, allocTempInfo);
-
-    auto writeSet = [&](vk::DescriptorSet set, vk::ImageView view)
-        {
-            vk::DescriptorImageInfo info{};
-            info
-                .setSampler(*postProcessSampler)
-                .setImageView(view)
-                .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-            vk::WriteDescriptorSet write{};
-            write
-                .setDstSet(set)
-                .setDstBinding(0)
-                .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-                .setDescriptorCount(1)
-                .setImageInfo(info);
-
-            device.updateDescriptorSets(write, nullptr);
-        };
-
-    writeSet(*bloomBlurFromBrightDescriptorSets[0], *bloomBrightView);
-    writeSet(*bloomBlurFromTempDescriptorSets[0], *bloomBlurTempView);
-}
-
-void Renderer::drawBloomBlur(
-    vk::raii::CommandBuffer& commandBuffer,
-    vk::ImageView outputView,
-    vk::DescriptorSet inputSet,
-    glm::vec2 direction)
-{
-    vk::ClearValue clearColor = vk::ClearColorValue(
-        std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f });
-
-    vk::RenderingAttachmentInfo colorAttachment{};
-    colorAttachment
-        .setImageView(outputView)
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(clearColor);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(vk::Rect2D{ {0, 0}, swapChainExtent })
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachment);
-
-    commandBuffer.beginRendering(renderingInfo);
-
-    commandBuffer.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(swapChainExtent.width),
-            static_cast<float>(swapChainExtent.height),
-            0.0f,
-            1.0f));
-
-    commandBuffer.setScissor(
-        0,
-        vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-
-    commandBuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomBlurPipeline);
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomBlurPipelineLayout,
-        0,
-        inputSet,
-        {});
-
-    glm::vec4 params(
-        direction.x,
-        direction.y,
-        1.0f / static_cast<float>(swapChainExtent.width),
-        1.0f / static_cast<float>(swapChainExtent.height));
-
-    commandBuffer.pushConstants<glm::vec4>(
-        *bloomBlurPipelineLayout,
-        vk::ShaderStageFlagBits::eFragment,
-        0,
-        params);
-
-    commandBuffer.draw(3, 1, 0, 0);
-
-    commandBuffer.endRendering();
-}
-
-void Renderer::createBloomDownsampleDescriptorSets()
-{
-    bloomDownsampleDescriptorSets.clear();
-
-    const uint32_t descriptorCount =
-        static_cast<uint32_t>(bloomDownsampleLevels);
-
-    vk::DescriptorPoolSize poolSize{};
-    poolSize
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(descriptorCount);
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(descriptorCount)
-        .setPoolSizes(poolSize);
-
-    bloomDownsampleDescriptorPool =
-        vk::raii::DescriptorPool(vkContext.getDevice(), poolInfo);
-
-    for (uint32_t i = 0; i < bloomDownsampleLevels; ++i)
-    {
-        vk::DescriptorSetLayout layout = *bloomBlurDescriptorSetLayout;
-
-        vk::DescriptorSetAllocateInfo allocInfo{};
-        allocInfo
-            .setDescriptorPool(*bloomDownsampleDescriptorPool)
-            .setSetLayouts(layout);
-
-        bloomDownsampleDescriptorSets.emplace_back(
-            vkContext.getDevice(),
-            allocInfo);
-
-        vk::ImageView sourceView =
-            (i == 0)
-            ? *bloomBrightView
-            : *bloomDownsampleChain[i - 1].view;
-
-        vk::DescriptorImageInfo inputInfo{};
-        inputInfo
-            .setSampler(*postProcessSampler)
-            .setImageView(sourceView)
-            .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-        vk::WriteDescriptorSet write{};
-        write
-            .setDstSet(*bloomDownsampleDescriptorSets[i][0])
-            .setDstBinding(0)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setImageInfo(inputInfo);
-
-        vkContext.getDevice().updateDescriptorSets(write, nullptr);
-    }
-}
-
-void Renderer::drawBloomDownsample(
-    vk::raii::CommandBuffer& commandBuffer,
-    vk::ImageView outputView,
-    vk::DescriptorSet inputSet,
-    uint32_t outputWidth,
-    uint32_t outputHeight,
-    uint32_t inputWidth,
-    uint32_t inputHeight)
-{
-    vk::ClearValue clearColor = vk::ClearColorValue(
-        std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f });
-
-    vk::RenderingAttachmentInfo colorAttachment{};
-    colorAttachment
-        .setImageView(outputView)
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(clearColor);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(vk::Rect2D{
-            vk::Offset2D{0, 0},
-            vk::Extent2D{outputWidth, outputHeight}
-            })
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachment);
-
-    commandBuffer.beginRendering(renderingInfo);
-
-    commandBuffer.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(outputWidth),
-            static_cast<float>(outputHeight),
-            0.0f,
-            1.0f));
-
-    commandBuffer.setScissor(
-        0,
-        vk::Rect2D(
-            vk::Offset2D{ 0, 0 },
-            vk::Extent2D{ outputWidth, outputHeight }));
-
-    commandBuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomDownsamplePipeline);
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomDownsamplePipelineLayout,
-        0,
-        inputSet,
-        {});
-
-    glm::vec4 params(
-        1.0f / static_cast<float>(inputWidth),
-        1.0f / static_cast<float>(inputHeight),
-        0.0f,
-        0.0f);
-
-    commandBuffer.pushConstants<glm::vec4>(
-        *bloomDownsamplePipelineLayout,
-        vk::ShaderStageFlagBits::eFragment,
-        0,
-        params);
-
-    commandBuffer.draw(3, 1, 0, 0);
-
-    commandBuffer.endRendering();
-}
-
-void Renderer::createBloomUpsamplePipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::raii::ShaderModule vertShaderModule =
-        ShaderUtils::createShaderModule(device, "shaders/post_fullscreen.spv");
-
-    vk::raii::ShaderModule fragShaderModule =
-        ShaderUtils::createShaderModule(device, "shaders/bloom_upsample.spv");
-
-    vk::PipelineShaderStageCreateInfo vertStage{};
-    vertStage
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragStage{};
-    fragStage
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertStage,
-        fragStage
-    };
-
-    vk::PipelineVertexInputStateCreateInfo vertexInput{};
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState blendAttachment{};
-    blendAttachment
-        .setBlendEnable(VK_TRUE)
-        .setSrcColorBlendFactor(vk::BlendFactor::eOne)
-        .setDstColorBlendFactor(vk::BlendFactor::eOne)
-        .setColorBlendOp(vk::BlendOp::eAdd)
-        .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-        .setDstAlphaBlendFactor(vk::BlendFactor::eOne)
-        .setAlphaBlendOp(vk::BlendOp::eAdd)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA);
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setAttachments(blendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PushConstantRange pushRange{};
-    pushRange
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(glm::vec4));
-
-    vk::PipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo
-        .setSetLayouts(*bloomBlurDescriptorSetLayout)
-        .setPushConstantRanges(pushRange);
-
-    bloomUpsamplePipelineLayout =
-        vk::raii::PipelineLayout(device, layoutInfo);
-
-    std::array<vk::Format, 1> colorFormats = {
-        hdrFormat
-    };
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineChain{};
-
-    pipelineChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInput)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*bloomUpsamplePipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    pipelineChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(colorFormats);
-
-    bloomUpsamplePipeline =
-        vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
-}
 
 void Renderer::drawFrame()
 {
@@ -2822,7 +1883,7 @@ void Renderer::drawFrame()
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-void Renderer::recordCommandBuffer(uint32_t imageIndex)
+void Renderer::recordCommandBuffer(uint32_t imageIndex) 
 {
     auto& commandBuffer = commandBuffers[frameIndex];
     commandBuffer.begin(vk::CommandBufferBeginInfo{});
@@ -2830,14 +1891,14 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     vk::CommandBuffer cmd = *commandBuffer;
     const auto& extent = swapChainExtent;
 
-    transitionToColorAttachment(
+    TransitionUtils::transitionToColorAttachment(
         cmd,
         *colorImage,
         vk::ImageLayout::eUndefined);
 
-    transitionToColorAttachment(
+    TransitionUtils::transitionToColorAttachment(
         cmd,
-        *hdrColorImage,
+        postProcessRenderer->getHdrImage(),
         vk::ImageLayout::eUndefined);
 
     vk::ImageLayout swapChainOldLayout =
@@ -2847,7 +1908,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
     
 
-    transitionToDepthAttachment(
+    TransitionUtils::transitionToDepthAttachment(
         cmd,
         *depthImage,
         depthAspect);
@@ -2868,7 +1929,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         .setStoreOp(vk::AttachmentStoreOp::eDontCare)
         .setClearValue(clearColorValue)
         .setResolveMode(vk::ResolveModeFlagBits::eAverage)
-        .setResolveImageView(*hdrColorView)
+        .setResolveImageView(postProcessRenderer->getHdrView())
         .setResolveImageLayout(vk::ImageLayout::eColorAttachmentOptimal);
 
     vk::RenderingAttachmentInfo depthAttachmentInfo{};
@@ -3165,177 +2226,75 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
     commandBuffer.endRendering();
 
-    transitionToShaderReadOnly(
+    TransitionUtils::transitionToShaderReadOnly(
         cmd,
-        *hdrColorImage,
+        postProcessRenderer->getHdrImage(),
         vk::ImageLayout::eColorAttachmentOptimal);
 
-    transitionToColorAttachment(
+    TransitionUtils::transitionToColorAttachment(
         cmd,
-        *bloomBrightImage,
+        postProcessRenderer->getBloomBrightImage(),
         vk::ImageLayout::eUndefined);
 
-    drawBloomExtract(commandBuffer);
+    postProcessRenderer->recordBloomExtract(commandBuffer);
 
     // bloomBright -> shader read for horizontal blur
-    transitionToShaderReadOnly(
+    TransitionUtils::transitionToShaderReadOnly(
         cmd,
-        *bloomBrightImage,
+        postProcessRenderer->getBloomBrightImage(),
         vk::ImageLayout::eColorAttachmentOptimal);
 
     // Horizontal blur: bloomBright -> bloomBlurTemp
-    transitionToColorAttachment(
+    TransitionUtils::transitionToColorAttachment(
         cmd,
-        *bloomBlurTempImage,
+        postProcessRenderer->getBloomBlurTempImage(),
         vk::ImageLayout::eUndefined);
 
-    drawBloomBlur(
+    postProcessRenderer->recordBloomBlurFromBright(
         commandBuffer,
-        *bloomBlurTempView,
-        *bloomBlurFromBrightDescriptorSets[0],
+        postProcessRenderer->getBloomBlurTempView(),
         glm::vec2(1.0f, 0.0f));
 
     // bloomBlurTemp -> shader read for vertical blur
-    transitionToShaderReadOnly(
+    TransitionUtils::transitionToShaderReadOnly(
         cmd,
-        *bloomBlurTempImage,
+        postProcessRenderer->getBloomBlurTempImage(),
         vk::ImageLayout::eColorAttachmentOptimal);
 
     // Vertical blur: bloomBlurTemp -> bloomBright
-    transitionToColorAttachment(
+    TransitionUtils::transitionToColorAttachment(
         cmd,
-        *bloomBrightImage,
+        postProcessRenderer->getBloomBrightImage(),
         vk::ImageLayout::eShaderReadOnlyOptimal);
 
-    drawBloomBlur(
+    postProcessRenderer->recordBloomBlurFromTemp(
         commandBuffer,
-        *bloomBrightView,
-        *bloomBlurFromTempDescriptorSets[0],
+        postProcessRenderer->getBloomBrightView(),
         glm::vec2(0.0f, 1.0f));
 
-
-    // blurred bloomBright -> shader read for final post
-    transitionToShaderReadOnly(
+    // blurred bloomBright -> shader read for pyramid
+    TransitionUtils::transitionToShaderReadOnly(
         cmd,
-        *bloomBrightImage,
+        postProcessRenderer->getBloomBrightImage(),
         vk::ImageLayout::eColorAttachmentOptimal);
 
+    postProcessRenderer->recordBloomPyramid(commandBuffer);
 
-    // bloomBright is shader-read at this point.
-    // Downsample chain begins from bloomBright.
-
-    for (uint32_t i = 0; i < bloomDownsampleLevels; ++i)
-    {
-        BloomMipResource& dst = bloomDownsampleChain[i];
-
-        transitionToColorAttachment(
-            cmd,
-            *dst.image,
-            vk::ImageLayout::eUndefined);
-
-        uint32_t inputWidth =
-            (i == 0) ? swapChainExtent.width : bloomDownsampleChain[i - 1].width;
-
-        uint32_t inputHeight =
-            (i == 0) ? swapChainExtent.height : bloomDownsampleChain[i - 1].height;
-
-        drawBloomDownsample(
-            commandBuffer,
-            *dst.view,
-            *bloomDownsampleDescriptorSets[i][0],
-            dst.width,
-            dst.height,
-            inputWidth,
-            inputHeight);
-
-        transitionToShaderReadOnly(
-            cmd,
-            *dst.image,
-            vk::ImageLayout::eColorAttachmentOptimal);
-    }
-
-
-    // ------------------------------------------------------------
-// Upsample / accumulate downsample chain: smallest -> largest
-// ------------------------------------------------------------
-    if (bloomDownsampleLevels > 1)
-    {
-        for (int i = static_cast<int>(bloomDownsampleLevels) - 1; i > 0; --i)
-        {
-            BloomMipResource& src = bloomDownsampleChain[i];
-            BloomMipResource& dst = bloomDownsampleChain[i - 1];
-
-            transitionToColorAttachment(
-                cmd,
-                *dst.image,
-                vk::ImageLayout::eShaderReadOnlyOptimal);
-
-            const uint32_t descriptorIndex = static_cast<uint32_t>(i - 1);
-
-            drawBloomUpsample(
-                commandBuffer,
-                *dst.view,
-                *bloomUpsampleDescriptorSets[descriptorIndex][0],
-                dst.width,
-                dst.height,
-                src.width,
-                src.height);
-
-            transitionToShaderReadOnly(
-                cmd,
-                *dst.image,
-                vk::ImageLayout::eColorAttachmentOptimal);
-        }
-    }
-    // ------------------------------------------------------------
-// Final upsample into full-res bloomBright
-// ------------------------------------------------------------
-
-    if (!bloomDownsampleChain.empty())
-    {
-        transitionToColorAttachment(
-            cmd,
-            *bloomBrightImage,
-            vk::ImageLayout::eShaderReadOnlyOptimal);
-
-        drawBloomUpsample(
-            commandBuffer,
-            *bloomBrightView,
-            *bloomUpsampleFinalDescriptorSet[0],
-            swapChainExtent.width,
-            swapChainExtent.height,
-            bloomDownsampleChain[0].width,
-            bloomDownsampleChain[0].height);
-
-        transitionToShaderReadOnly(
-            cmd,
-            *bloomBrightImage,
-            vk::ImageLayout::eColorAttachmentOptimal);
-    }
-
-
-
-    // Final post-process pass: HDR + blurred bloom -> swapchain + ImGui
-    transitionToColorAttachment(
+    // Final post-process pass
+    TransitionUtils::transitionToColorAttachment(
         cmd,
         swapChainImages[imageIndex],
         swapChainOldLayout);
 
     drawPostProcessToSwapchain(commandBuffer, imageIndex);
 
-    transitionToPresent(
+    TransitionUtils::transitionToPresent(
         cmd,
         swapChainImages[imageIndex]);
 
     swapChainImageInitialized[imageIndex] = true;
 
     commandBuffer.end();
-
-
-
-
-
-
 
 }
 
@@ -3574,123 +2533,6 @@ void Renderer::createCubemapFromDDS(
 
 
 
-void Renderer::transitionImageLayout(
-    vk::CommandBuffer cmd,
-    vk::Image image,
-    vk::ImageLayout oldLayout,
-    vk::ImageLayout newLayout,
-    vk::AccessFlags srcAccessMask,
-    vk::AccessFlags dstAccessMask,
-    vk::PipelineStageFlags srcStage,
-    vk::PipelineStageFlags dstStage,
-    vk::ImageAspectFlags aspectMask)
-{
-    vk::ImageMemoryBarrier barrier{};
-    barrier
-        .setOldLayout(oldLayout)
-        .setNewLayout(newLayout)
-        .setSrcAccessMask(srcAccessMask)
-        .setDstAccessMask(dstAccessMask)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(image);
-
-    barrier.subresourceRange
-        .setAspectMask(aspectMask)
-        .setBaseMipLevel(0)
-        .setLevelCount(1)
-        .setBaseArrayLayer(0)
-        .setLayerCount(1);
-
-    cmd.pipelineBarrier(
-        srcStage,
-        dstStage,
-        {},
-        nullptr,
-        nullptr,
-        barrier);
-}
-
-void Renderer::transitionToColorAttachment(
-    vk::CommandBuffer cmd,
-    vk::Image image,
-    vk::ImageLayout oldLayout)
-{
-    transitionImageLayout(
-        cmd,
-        image,
-        oldLayout,
-        vk::ImageLayout::eColorAttachmentOptimal,
-        {},
-        vk::AccessFlagBits::eColorAttachmentWrite,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::ImageAspectFlagBits::eColor);
-}
-
-void Renderer::transitionToPresent(
-    vk::CommandBuffer cmd,
-    vk::Image image)
-{
-    transitionImageLayout(
-        cmd,
-        image,
-        vk::ImageLayout::eColorAttachmentOptimal,
-        vk::ImageLayout::ePresentSrcKHR,
-        vk::AccessFlagBits::eColorAttachmentWrite,
-        {},
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eBottomOfPipe,
-        vk::ImageAspectFlagBits::eColor);
-}
-
-void Renderer::transitionToDepthAttachment(
-    vk::CommandBuffer cmd,
-    vk::Image image,
-    vk::ImageAspectFlags aspectMask)
-{
-    transitionImageLayout(
-        cmd,
-        image,
-        vk::ImageLayout::eUndefined,
-        vk::ImageLayout::eDepthAttachmentOptimal,
-        {},
-        vk::AccessFlagBits::eDepthStencilAttachmentWrite,
-        vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests,
-        vk::PipelineStageFlagBits::eEarlyFragmentTests | vk::PipelineStageFlagBits::eLateFragmentTests,
-        aspectMask);
-}
-
-void Renderer::transitionToShaderReadOnly(
-    vk::CommandBuffer cmd,
-    vk::Image image,
-    vk::ImageLayout oldLayout)
-{
-    vk::ImageMemoryBarrier barrier{};
-    barrier
-        .setOldLayout(oldLayout)
-        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(image)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1))
-        .setSrcAccessMask(vk::AccessFlagBits::eColorAttachmentWrite)
-        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eColorAttachmentOutput,
-        vk::PipelineStageFlagBits::eFragmentShader,
-        {},
-        nullptr,
-        nullptr,
-        barrier);
-}
 
 
 void Renderer::resetDefaultSceneLayout()
@@ -4047,154 +2889,6 @@ void Renderer::updateCameraControls()
 }
 
 
-void Renderer::createBloomUpsampleDescriptorSets()
-{
-    bloomUpsampleDescriptorSets.clear();
-    bloomUpsampleFinalDescriptorSet.clear();
-
-    const uint32_t chainSets =
-        bloomDownsampleLevels > 1 ? bloomDownsampleLevels - 1 : 0;
-
-    const uint32_t totalSets = chainSets + 1; // + final into bloomBright
-
-    vk::DescriptorPoolSize poolSize{};
-    poolSize
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(totalSets);
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(totalSets)
-        .setPoolSizes(poolSize);
-
-    bloomUpsampleDescriptorPool =
-        vk::raii::DescriptorPool(vkContext.getDevice(), poolInfo);
-
-    vk::DescriptorSetLayout layout = *bloomBlurDescriptorSetLayout;
-
-    auto allocateAndWrite = [&](vk::ImageView sourceView) -> vk::raii::DescriptorSets
-        {
-            vk::DescriptorSetAllocateInfo allocInfo{};
-            allocInfo
-                .setDescriptorPool(*bloomUpsampleDescriptorPool)
-                .setSetLayouts(layout);
-
-            vk::raii::DescriptorSets sets(vkContext.getDevice(), allocInfo);
-
-            vk::DescriptorImageInfo info{};
-            info
-                .setSampler(*postProcessSampler)
-                .setImageView(sourceView)
-                .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-
-            vk::WriteDescriptorSet write{};
-            write
-                .setDstSet(*sets[0])
-                .setDstBinding(0)
-                .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-                .setDescriptorCount(1)
-                .setImageInfo(info);
-
-            vkContext.getDevice().updateDescriptorSets(write, nullptr);
-
-            return sets;
-        };
-
-    // For chain: src = level i, dst = level i - 1.
-    // We need descriptor sets for i = 1..N-1.
-    for (uint32_t i = 1; i < bloomDownsampleLevels; ++i)
-    {
-        bloomUpsampleDescriptorSets.push_back(
-            allocateAndWrite(*bloomDownsampleChain[i].view));
-    }
-
-    // Final: src = level 0, dst = bloomBright.
-    if (!bloomDownsampleChain.empty())
-    {
-        bloomUpsampleFinalDescriptorSet =
-            allocateAndWrite(*bloomDownsampleChain[0].view);
-    }
-}
-
-void Renderer::drawBloomUpsample(
-    vk::raii::CommandBuffer& commandBuffer,
-    vk::ImageView outputView,
-    vk::DescriptorSet inputSet,
-    uint32_t outputWidth,
-    uint32_t outputHeight,
-    uint32_t inputWidth,
-    uint32_t inputHeight)   
-{
-    vk::RenderingAttachmentInfo colorAttachment{};
-    colorAttachment
-        .setImageView(outputView)
-        .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
-        .setLoadOp(vk::AttachmentLoadOp::eLoad) // important: additive into existing image
-        .setStoreOp(vk::AttachmentStoreOp::eStore);
-
-    vk::RenderingInfo renderingInfo{};
-    renderingInfo
-        .setRenderArea(vk::Rect2D{
-            vk::Offset2D{0, 0},
-            vk::Extent2D{outputWidth, outputHeight}
-            })
-        .setLayerCount(1)
-        .setColorAttachments(colorAttachment);
-
-    commandBuffer.beginRendering(renderingInfo);
-
-    commandBuffer.setViewport(
-        0,
-        vk::Viewport(
-            0.0f,
-            0.0f,
-            static_cast<float>(outputWidth),
-            static_cast<float>(outputHeight),
-            0.0f,
-            1.0f));
-
-    commandBuffer.setScissor(
-        0,
-        vk::Rect2D(
-            vk::Offset2D{ 0, 0 },
-            vk::Extent2D{ outputWidth, outputHeight }));
-
-    commandBuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomUpsamplePipeline);
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        *bloomUpsamplePipelineLayout,
-        0,
-        inputSet,
-        {});
-
-    /* glm::vec4 params(
-        1.0f, // filterRadius / contribution scale
-        0.0f,
-        0.0f,
-        0.0f);
-        */
-
-
-    glm::vec4 params(
-        bloomIntensity,
-        bloomUpsampleRadius,
-        1.0f / static_cast<float>(inputWidth),
-        1.0f / static_cast<float>(inputHeight));
-
-    commandBuffer.pushConstants<glm::vec4>(
-        *bloomUpsamplePipelineLayout,
-        vk::ShaderStageFlagBits::eFragment,
-        0,
-        params);
-
-    commandBuffer.draw(3, 1, 0, 0);
-
-    commandBuffer.endRendering();
-}
 
 
 Material* Renderer::getSelectedRenderableMaterial()
@@ -4912,8 +3606,11 @@ void Renderer::createSkyboxPipeline()
         .setLayout(*skyboxPipelineLayout)
         .setRenderPass(vk::RenderPass{});
 
+    std::array<vk::Format, 1> colorAttachmentFormats = {
+        postProcessRenderer->getHdrFormat() };
+
     pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(hdrFormat)
+        .setColorAttachmentFormats(colorAttachmentFormats)
         .setDepthAttachmentFormat(depthFormat);
 
     skyboxPipeline = vk::raii::Pipeline(
@@ -4923,451 +3620,11 @@ void Renderer::createSkyboxPipeline()
     );
 }
 
-void Renderer::createBloomExtractPipeline()
-{
-    auto& device = vkContext.getDevice();
 
-    vk::raii::ShaderModule vertShaderModule =
-        ShaderUtils::createShaderModule(
-            device,
-            "shaders/post_fullscreen.spv");
 
-    vk::raii::ShaderModule fragShaderModule =
-        ShaderUtils::createShaderModule(
-            device,
-            "shaders/bloom_extract.spv");
 
-    vk::PipelineShaderStageCreateInfo vertStage{};
-    vertStage
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
 
-    vk::PipelineShaderStageCreateInfo fragStage{};
-    fragStage
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
 
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertStage,
-        fragStage
-    };
-
-    vk::PipelineVertexInputStateCreateInfo vertexInput{};
-    vertexInput
-        .setVertexBindingDescriptions({})
-        .setVertexAttributeDescriptions({});
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA);
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setAttachments(colorBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PushConstantRange pushRange{};
-    pushRange
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(glm::vec4));
-
-    vk::PipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo
-        .setSetLayouts(*bloomExtractDescriptorSetLayout)
-        .setPushConstantRanges(pushRange);
-
-    bloomExtractPipelineLayout =
-        vk::raii::PipelineLayout(device, layoutInfo);
-
-    std::array<vk::Format, 1> colorFormats = {
-        hdrFormat
-    };
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineChain{};
-
-    pipelineChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInput)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*bloomExtractPipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    pipelineChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(colorFormats);
-
-    bloomExtractPipeline =
-        vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
-}
-
-void Renderer::createBloomBlurPipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::raii::ShaderModule vertShaderModule =
-        ShaderUtils::createShaderModule(
-            device,
-            "shaders/post_fullscreen.spv");
-
-    vk::raii::ShaderModule fragShaderModule =
-        ShaderUtils::createShaderModule(
-            device,
-            "shaders/bloom_blur.spv");
-
-    vk::PipelineShaderStageCreateInfo vertStage{};
-    vertStage
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragStage{};
-    fragStage
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertStage,
-        fragStage
-    };
-
-    vk::PipelineVertexInputStateCreateInfo vertexInput{};
-    vertexInput
-        .setVertexBindingDescriptions({})
-        .setVertexAttributeDescriptions({});
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA);
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setAttachments(colorBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PushConstantRange pushRange{};
-    pushRange
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(glm::vec4));
-
-    vk::PipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo
-        .setSetLayouts(*bloomBlurDescriptorSetLayout)
-        .setPushConstantRanges(pushRange);
-    ;
-
-    bloomBlurPipelineLayout =
-        vk::raii::PipelineLayout(device, layoutInfo);
-
-    std::array<vk::Format, 1> colorFormats = {
-        hdrFormat
-    };
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineChain{};
-
-    pipelineChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInput)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*bloomBlurPipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    pipelineChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(colorFormats);
-
-    bloomBlurPipeline =
-        vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
-}
-
-//Here 
-
-void Renderer::createBloomDownsamplePipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::raii::ShaderModule vertShaderModule =
-        ShaderUtils::createShaderModule(device, "shaders/post_fullscreen.spv");
-
-    vk::raii::ShaderModule fragShaderModule =
-        ShaderUtils::createShaderModule(device, "shaders/bloom_downsample.spv");
-
-    vk::PipelineShaderStageCreateInfo vertStage{};
-    vertStage
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragStage{};
-    fragStage
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertStage,
-        fragStage
-    };
-
-    vk::PipelineVertexInputStateCreateInfo vertexInput{};
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vk::SampleCountFlagBits::e1)
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA);
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setAttachments(colorBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PushConstantRange pushRange{};
-    pushRange
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(glm::vec4));
-
-    vk::PipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo
-        .setSetLayouts(*bloomBlurDescriptorSetLayout)
-        .setPushConstantRanges(pushRange);
-
-    bloomDownsamplePipelineLayout =
-        vk::raii::PipelineLayout(device, layoutInfo);
-
-    std::array<vk::Format, 1> colorFormats = {
-        hdrFormat
-    };
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineChain{};
-
-    pipelineChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInput)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*bloomDownsamplePipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    pipelineChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(colorFormats);
-
-    bloomDownsamplePipeline =
-        vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineChain.get<vk::GraphicsPipelineCreateInfo>());
-}
-
-void Renderer::createBloomDownsampleResources()
-{
-    bloomDownsampleChain.clear();
-
-    uint32_t width = swapChainExtent.width / 2;
-    uint32_t height = swapChainExtent.height / 2;
-
-    for (uint32_t i = 0; i < bloomDownsampleLevels; ++i)
-    {
-        width = std::max(1u, width);
-        height = std::max(1u, height);
-
-        BloomMipResource level{};
-        level.width = width;
-        level.height = height;
-
-        imageUtils.createImage(
-            width,
-            height,
-            1,
-            vk::SampleCountFlagBits::e1,
-            hdrFormat,
-            vk::ImageTiling::eOptimal,
-            vk::ImageUsageFlagBits::eColorAttachment |
-            vk::ImageUsageFlagBits::eSampled,
-            vk::MemoryPropertyFlagBits::eDeviceLocal,
-            level.image,
-            level.memory);
-
-        level.view = imageUtils.createImageView(
-            level.image,
-            hdrFormat,
-            vk::ImageAspectFlagBits::eColor,
-            1);
-
-        bloomDownsampleChain.push_back(std::move(level));
-
-        width /= 2;
-        height /= 2;
-    }
-}
 
 void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex)
 {
@@ -5596,12 +3853,12 @@ void Renderer::buildImGui()
             postExposure,
 
             bloomEnabled,
-            bloomThreshold,
-            bloomKnee,
+            postProcessRenderer->bloomThreshold,
+            postProcessRenderer->bloomKnee,
             bloomStrength,
 
-            bloomIntensity,
-            bloomUpsampleRadius,
+            postProcessRenderer->bloomIntensity,
+            postProcessRenderer->bloomUpsampleRadius,
 
             environmentRotationDegrees,
             rotateSkybox,
