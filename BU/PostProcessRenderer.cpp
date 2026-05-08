@@ -1678,10 +1678,9 @@ void PostProcessRenderer::createPostProcessDescriptorSetLayout()
 }
 
 void PostProcessRenderer::recordFinalComposite(
-    vk::raii::CommandBuffer& commandBuffer)
+    vk::raii::CommandBuffer& commandBuffer,
+    const glm::vec4& postParams)
 {
-    const glm::vec4 postParams = buildFinalCompositeParams();
-
     commandBuffer.bindPipeline(
         vk::PipelineBindPoint::eGraphics,
         *postProcessPipeline);
@@ -1766,15 +1765,6 @@ void PostProcessRenderer::endFinalPass(
     vk::raii::CommandBuffer& commandBuffer)
 {
     commandBuffer.endRendering();
-}
-
-glm::vec4 PostProcessRenderer::buildFinalCompositeParams() const
-{
-    return glm::vec4(
-        postExposure,
-        toneMappingEnabled ? 1.0f : 0.0f,
-        gammaEnabled ? 1.0f : 0.0f,
-        bloomEnabled ? bloomStrength : 0.0f);
 }
 
 

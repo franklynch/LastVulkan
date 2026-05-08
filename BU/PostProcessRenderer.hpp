@@ -72,22 +72,14 @@ public:
     void recordBloomPyramid(vk::raii::CommandBuffer& commandBuffer);
 
     void recordFinalComposite(
-        vk::raii::CommandBuffer& commandBuffer);
+        vk::raii::CommandBuffer& commandBuffer,
+        const glm::vec4& postParams);
 
     float bloomThreshold = 1.0f;
     float bloomKnee = 0.5f;
 
     float bloomIntensity = 1.0f;
     float bloomUpsampleRadius = 0.005f;
-
-    float bloomStrength = 0.15f;
-    bool  bloomEnabled = true;
-
-    bool    toneMappingEnabled = true;
-    bool    gammaEnabled = true;
-    float   postExposure = 1.0f;
-
-    glm::vec4 buildFinalCompositeParams() const;
 
     void beginFinalPass(
         vk::raii::CommandBuffer& commandBuffer,

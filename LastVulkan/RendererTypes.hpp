@@ -22,11 +22,6 @@ import vulkan_hpp;
 inline constexpr uint32_t WIDTH = 800;
 inline constexpr uint32_t HEIGHT = 600;
 
-inline const std::string MODEL_PATH = "models/viking_room.obj";
-
-
-
-
 
 inline constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 

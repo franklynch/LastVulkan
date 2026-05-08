@@ -40,6 +40,9 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , vkContext(vkContext)
     , bufferUtils(vkContext)
     , imageUtils(vkContext, bufferUtils)
+    , swapchain(window, vkContext)
+    , renderTargets(vkContext, imageUtils)
+    , frameResources(vkContext)
 {
     init();
 }
@@ -105,47 +108,40 @@ Renderer::~Renderer()
 void Renderer::init()
 {
 
-    createSwapChain();
-    createImageViews();
-    createDescriptorSetLayout();
+    swapchain.create();
+    
 
-    depthFormat = findDepthFormat();
-    depthAspect = hasStencilComponent(depthFormat)
-        ? (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)
-        : vk::ImageAspectFlagBits::eDepth;
-
-    
-    
-    
     postProcessRenderer = std::make_unique<PostProcessRenderer>(
         vkContext,
         bufferUtils,
         imageUtils);
 
-    
-
-
     postProcessRenderer->init(
-        swapChainExtent,
-        swapChainSurfaceFormat.format);
-
-
-       
+        swapchain.extent(),
+        swapchain.format());
     
-               
-    createColorResources();
-    
+    renderTargets.create(
+        swapchain.extent(),
+        postProcessRenderer->getHdrFormat());
     
 
-    createDepthResources();
+    frameResources.createCommandBuffers(MAX_FRAMES_IN_FLIGHT);
+    frameResources.createSyncObjects(
+        MAX_FRAMES_IN_FLIGHT,
+        swapchain.imageCount());
+
+
+    createDescriptorSetLayout();
+
+    
+
+    
    
+           
+
+
     createGraphicsPipeline();
     createSkyboxPipeline();
-    
-   
-    
-    
-
     clearSceneResources();
     createDefaultMaterialTextures();
     setupCameraDefaults();
@@ -174,21 +170,8 @@ void Renderer::init()
     createDescriptorSets();
     createMaterialDescriptorSets();
 
-    
-    
-    
-    
-    
-
-    
-    
-
     createIrradianceCubemapFromDDS("assets/ibl/output_iem.dds");
     createPrefilteredCubemapFromDDS("assets/ibl/output_pmrem.dds");
-
-  
-
-    
 
     createEnvironmentCubemap({
     "assets/skybox/right.jpg",
@@ -211,30 +194,16 @@ void Renderer::init()
         hdrEnvironmentView);
     
 
-    
-    
-
-    
     irradianceRenderer = std::make_unique<IrradianceRenderer>(vkContext, bufferUtils);
     irradianceRenderer->init(environment);
     
     prefilterRenderer = std::make_unique<PrefilterRenderer>(vkContext, bufferUtils);
     prefilterRenderer->init(environment);
-       
-
-     
-
-    
 
     updateIBLDescriptorSet();
 
-    
-
-    createCommandBuffers();
-    createSyncObjects();
+   
     initImGui();
-
-
 
 }
 
@@ -253,25 +222,13 @@ void Renderer::cleanupSwapChain()
     skyboxPipelineLayout = nullptr;
 
     
-    
-    
-       
 
-    colorImageView = nullptr;
-    colorImageMemory = nullptr;
-    colorImage = nullptr;
+    renderTargets.cleanup();
+    swapchain.cleanup();
+
+    // frameResources.cleanupSwapchainDependent();
 
     
-
-    depthImageView = nullptr;
-    depthImageMemory = nullptr;
-    depthImage = nullptr;
-
-    
-
-    swapChainImageViews.clear();
-    swapChainImages.clear();
-    swapChain = nullptr;
 }
 
 void Renderer::recreateSwapChain()
@@ -290,26 +247,20 @@ void Renderer::recreateSwapChain()
 
     cleanupSwapChain();
 
-    createSwapChain();
-    createImageViews();
-
+    swapchain.create();
     
-
-   
+    
 
     postProcessRenderer->recreate(
-        swapChainExtent,
-        swapChainSurfaceFormat.format);
+        swapchain.extent(), 
+        swapchain.format());
+
+    renderTargets.create(
+        swapchain.extent(),
+        postProcessRenderer->getHdrFormat());
 
     
-
-    depthFormat = findDepthFormat();
-    depthAspect = hasStencilComponent(depthFormat)
-        ? (vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)
-        : vk::ImageAspectFlagBits::eDepth;
-
-    createColorResources();
-    createDepthResources();
+    frameResources.recreateSwapchainDependent(swapchain.imageCount());
 
     createGraphicsPipeline();
     createSkyboxPipeline();
@@ -319,81 +270,8 @@ void Renderer::recreateSwapChain()
     
     
 
-    renderFinishedSemaphores.clear();
-    renderFinishedSemaphores.reserve(swapChainImages.size());
-
-    for (size_t i = 0; i < swapChainImages.size(); ++i)
-    {
-        renderFinishedSemaphores.emplace_back(
-            vkContext.getDevice(),
-            vk::SemaphoreCreateInfo{});
-    }
-
-    imagesInFlight.assign(swapChainImages.size(), vk::Fence{});
-    swapChainImageInitialized.assign(swapChainImages.size(), false);
-}
-
-void Renderer::createSwapChain()
-{
-    auto& physicalDevice = vkContext.getPhysicalDevice();
-    auto& surface = vkContext.getSurface();
-    auto& device = vkContext.getDevice();
-
-    vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
-    swapChainExtent = chooseSwapExtent(surfaceCapabilities);
-    uint32_t minImageCount = chooseSwapMinImageCount(surfaceCapabilities);
-
-    std::vector<vk::SurfaceFormatKHR> availableFormats = physicalDevice.getSurfaceFormatsKHR(*surface);
-    swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
-
-    std::vector<vk::PresentModeKHR> availablePresentModes = physicalDevice.getSurfacePresentModesKHR(*surface);
-    vk::PresentModeKHR presentMode = chooseSwapPresentMode(availablePresentModes);
-
-    vk::SwapchainCreateInfoKHR swapChainCreateInfo{};
-    swapChainCreateInfo
-        .setSurface(*surface)
-        .setMinImageCount(minImageCount)
-        .setImageFormat(swapChainSurfaceFormat.format)
-        .setImageColorSpace(swapChainSurfaceFormat.colorSpace)
-        .setImageExtent(swapChainExtent)
-        .setImageArrayLayers(1)
-        .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
-        .setImageSharingMode(vk::SharingMode::eExclusive)
-        .setPreTransform(surfaceCapabilities.currentTransform)
-        .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
-        .setPresentMode(presentMode)
-        .setClipped(VK_TRUE);
-
-    swapChain = vk::raii::SwapchainKHR(device, swapChainCreateInfo);
-    swapChainImages = swapChain.getImages();
-    swapChainImageInitialized.assign(swapChainImages.size(), false);
-}
-
-void Renderer::createImageViews()
-{
-    assert(swapChainImageViews.empty());
-
-    auto& device = vkContext.getDevice();
-
-    vk::ImageSubresourceRange range{};
-    range
-        .setAspectMask(vk::ImageAspectFlagBits::eColor)
-        .setBaseMipLevel(0)
-        .setLevelCount(1)
-        .setBaseArrayLayer(0)
-        .setLayerCount(1);
-
-    vk::ImageViewCreateInfo imageViewCreateInfo{};
-    imageViewCreateInfo
-        .setViewType(vk::ImageViewType::e2D)
-        .setFormat(swapChainSurfaceFormat.format)
-        .setSubresourceRange(range);
-
-    for (const auto& image : swapChainImages)
-    {
-        imageViewCreateInfo.setImage(image);
-        swapChainImageViews.emplace_back(device, imageViewCreateInfo);
-    }
+    
+    
 }
 
 void Renderer::createDescriptorSetLayout()
@@ -691,7 +569,7 @@ void Renderer::createGraphicsPipeline()
 
     pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
 		.setColorAttachmentFormats(colorAttachmentFormats)
-        .setDepthAttachmentFormat(depthFormat);
+        .setDepthAttachmentFormat(renderTargets.depthFormat());
 
     // -------------------------
     // Opaque pipelines
@@ -790,49 +668,6 @@ void Renderer::createGraphicsPipeline()
     }
 }
 
-void Renderer::createColorResources()
-{
-    vk::Format colorFormat = postProcessRenderer->getHdrFormat();
-
-    imageUtils.createImage(
-        swapChainExtent.width,
-        swapChainExtent.height,
-        1,
-        vkContext.getMsaaSamples(),
-        colorFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransientAttachment |
-        vk::ImageUsageFlagBits::eColorAttachment,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        colorImage,
-        colorImageMemory
-    );
-
-    colorImageView = imageUtils.createImageView(colorImage, colorFormat, vk::ImageAspectFlagBits::eColor, 1);
-}
-
-void Renderer::createDepthResources()
-{
-    imageUtils.createImage(
-        swapChainExtent.width,
-        swapChainExtent.height,
-        1,
-        vkContext.getMsaaSamples(),
-        depthFormat,
-        vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eDepthStencilAttachment,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        depthImage,
-        depthImageMemory
-    );
-
-    depthImageView = imageUtils.createImageView(
-        depthImage,
-        depthFormat,
-        depthAspect,
-        1
-    );
-}
 
 void Renderer::createDefaultMaterialTextures()
 {
@@ -1345,72 +1180,7 @@ void Renderer::createRenderablesFromGltf(const GltfSceneData& imported)
 }
 
 
-vk::Format Renderer::findSupportedFormat(const std::vector<vk::Format>& candidates,
-    vk::ImageTiling tiling,
-    vk::FormatFeatureFlags features)
-{
-    auto& physicalDevice = vkContext.getPhysicalDevice();
 
-    auto formatIt = std::ranges::find_if(candidates, [&](auto const format) {
-        vk::FormatProperties props = physicalDevice.getFormatProperties(format);
-        return (((tiling == vk::ImageTiling::eLinear) && ((props.linearTilingFeatures & features) == features)) ||
-            ((tiling == vk::ImageTiling::eOptimal) && ((props.optimalTilingFeatures & features) == features)));
-        });
-
-    if (formatIt == candidates.end())
-    {
-        throw std::runtime_error("failed to find supported format!");
-    }
-
-    return *formatIt;
-}
-
-vk::Format Renderer::findDepthFormat()
-{
-    return findSupportedFormat(
-        { vk::Format::eD32Sfloat, vk::Format::eD32SfloatS8Uint, vk::Format::eD24UnormS8Uint },
-        vk::ImageTiling::eOptimal,
-        vk::FormatFeatureFlagBits::eDepthStencilAttachment
-    );
-}
-
-bool Renderer::hasStencilComponent(vk::Format format)
-{
-    return format == vk::Format::eD32SfloatS8Uint ||
-        format == vk::Format::eD24UnormS8Uint;
-}
-
-
-void Renderer::createCommandBuffers()
-{   
-    auto& device = vkContext.getDevice();
-
-    vk::CommandBufferAllocateInfo allocInfo{};
-    allocInfo
-        .setCommandPool(*vkContext.getCommandPool())
-        .setLevel(vk::CommandBufferLevel::ePrimary)
-        .setCommandBufferCount(MAX_FRAMES_IN_FLIGHT);
-
-    commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
-}
-
-
-void Renderer::loadModel()
-{
-    std::cout << "Loading model: " << MODEL_PATH << std::endl;
-
-    meshData = modelLoader.load(MODEL_PATH);
-
-    if (meshData.empty())
-    {
-        throw std::runtime_error("loaded mesh is empty");
-    }
-
-    std::cout << "Loaded mesh: "
-        << meshData.vertices.size() << " vertices, "
-        << meshData.indices.size() << " indices\n";
-
-}
 
 Texture2D& Renderer::getDefaultTexture()
 {
@@ -1533,39 +1303,7 @@ void Renderer::createDescriptorSets()
     // fallback textures already exist.
 }
 
-void Renderer::createSyncObjects()
-{
-    auto& device = vkContext.getDevice();
 
-    assert(presentCompleteSemaphores.empty() &&
-        renderFinishedSemaphores.empty() &&
-        inFlightFences.empty());
-
-    // Per-swapchain-image semaphores for present wait/signal lifetime.
-    renderFinishedSemaphores.clear();
-    renderFinishedSemaphores.reserve(swapChainImages.size());
-    for (size_t i = 0; i < swapChainImages.size(); ++i)
-    {
-        renderFinishedSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
-    }
-
-    // Per-frame acquire semaphores and fences.
-    presentCompleteSemaphores.clear();
-    inFlightFences.clear();
-    presentCompleteSemaphores.reserve(MAX_FRAMES_IN_FLIGHT);
-    inFlightFences.reserve(MAX_FRAMES_IN_FLIGHT);
-
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-    {
-        presentCompleteSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
-
-        vk::FenceCreateInfo fenceInfo{};
-        fenceInfo.setFlags(vk::FenceCreateFlagBits::eSignaled);
-        inFlightFences.emplace_back(device, fenceInfo);
-    }
-
-    imagesInFlight.assign(swapChainImages.size(), vk::Fence{});
-}
 
 void Renderer::updateUniformBuffer(uint32_t currentFrame)
 {
@@ -1581,7 +1319,7 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
 
     UniformBufferObject ubo{};
 
-    const auto& extent = swapChainExtent;
+	const auto& extent = swapchain.extent();
     float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height);
 
     ubo.view = camera.getViewMatrix();
@@ -1612,9 +1350,9 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     );
 
     ubo.postProcessParams = glm::vec4(
-        postExposure,
-        toneMappingEnabled ? 1.0f : 0.0f,
-        gammaEnabled ? 1.0f : 0.0f,
+        postProcessRenderer->postExposure,
+        postProcessRenderer->toneMappingEnabled ? 1.0f : 0.0f,
+        postProcessRenderer->gammaEnabled ? 1.0f : 0.0f,
         glm::radians(environmentRotationDegrees)
     );
 
@@ -1719,17 +1457,9 @@ void Renderer::drawPostProcessToSwapchain(
 {
     postProcessRenderer->beginFinalPass(
         commandBuffer,
-        *swapChainImageViews[imageIndex]);
+        *swapchain.imageViews()[imageIndex]);
 
-    glm::vec4 postParams(
-        postExposure,
-        toneMappingEnabled ? 1.0f : 0.0f,
-        gammaEnabled ? 1.0f : 0.0f,
-        bloomEnabled ? bloomStrength : 0.0f);
-
-    postProcessRenderer->recordFinalComposite(
-        commandBuffer,
-        postParams);
+    postProcessRenderer->recordFinalComposite(commandBuffer);
 
     renderImGui(*commandBuffer);
 
@@ -1750,8 +1480,10 @@ void Renderer::drawFrame()
     auto& device = vkContext.getDevice();
     auto& queue = vkContext.getQueue();
 
+    uint32_t currentFrame = frameResources.currentFrameIndex();
+
     vk::Result waitResult =
-        device.waitForFences(*inFlightFences[frameIndex], VK_TRUE, UINT64_MAX);
+        device.waitForFences(*frameResources.inFlightFence(currentFrame), VK_TRUE, UINT64_MAX);
 
     if (waitResult != vk::Result::eSuccess)
     {
@@ -1763,10 +1495,12 @@ void Renderer::drawFrame()
 
     try
     {
+        constexpr uint64_t acquireTimeoutNs = 1'000'000'000;
+
         auto acquireResult =
-            swapChain.acquireNextImage(
-                UINT64_MAX,
-                *presentCompleteSemaphores[frameIndex],
+            swapchain.handle().acquireNextImage(
+                acquireTimeoutNs,
+                *frameResources.presentCompleteSemaphore(currentFrame),
                 nullptr);
 
         result = acquireResult.result;
@@ -1779,6 +1513,11 @@ void Renderer::drawFrame()
         return;
     }
 
+    if (result == vk::Result::eTimeout)
+    {
+        return;
+    }
+
     if (result == vk::Result::eErrorOutOfDateKHR)
     {
         window.resetResizedFlag();
@@ -1786,30 +1525,24 @@ void Renderer::drawFrame()
         return;
     }
 
-    if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR)
+    if (result != vk::Result::eSuccess &&
+        result != vk::Result::eSuboptimalKHR)
     {
         throw std::runtime_error("failed to acquire swap chain image!");
     }
 
-    if (imageIndex >= swapChainImages.size())
+    if (imageIndex >= swapchain.imageCount())
     {
-        throw std::runtime_error("imageIndex out of range for swapChainImages");
+        throw std::runtime_error("imageIndex out of range for swapchain images");
     }
 
-    if (imageIndex >= renderFinishedSemaphores.size())
-    {
-        throw std::runtime_error("imageIndex out of range for renderFinishedSemaphores");
-    }
-
-    if (imageIndex >= imagesInFlight.size())
-    {
-        throw std::runtime_error("imageIndex out of range for imagesInFlight");
-    }
-
-    if (imagesInFlight[imageIndex])
+    if (frameResources.imageInFlight(imageIndex))
     {
         vk::Result imageFenceWaitResult =
-            device.waitForFences(imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+            device.waitForFences(
+                frameResources.imageInFlight(imageIndex),
+                VK_TRUE,
+                UINT64_MAX);
 
         if (imageFenceWaitResult != vk::Result::eSuccess)
         {
@@ -1817,31 +1550,41 @@ void Renderer::drawFrame()
         }
     }
 
-    imagesInFlight[imageIndex] = *inFlightFences[frameIndex];
+    frameResources.imageInFlight(imageIndex) = *frameResources.inFlightFence(currentFrame);
 
     beginImGuiFrame();
     updateCameraControls();
     buildImGui();
 
-    updateUniformBuffer(frameIndex);
+    updateUniformBuffer(currentFrame);
 
-    device.resetFences(*inFlightFences[frameIndex]);
+    device.resetFences(
+        *frameResources.inFlightFence(currentFrame));
 
-    commandBuffers[frameIndex].reset();
+    auto& commandBuffer =
+        frameResources.commandBuffer(currentFrame);
+
+    commandBuffer.reset();
+
     recordCommandBuffer(imageIndex);
 
-    vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::PipelineStageFlags waitStage =
+        vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
     vk::SubmitInfo submitInfo{};
     submitInfo
-        .setWaitSemaphores(*presentCompleteSemaphores[frameIndex])
+        .setWaitSemaphores(
+            *frameResources.presentCompleteSemaphore(currentFrame))
         .setWaitDstStageMask(waitStage)
-        .setCommandBuffers(*commandBuffers[frameIndex])
-        .setSignalSemaphores(*renderFinishedSemaphores[imageIndex]);
+        .setCommandBuffers(*commandBuffer)
+        .setSignalSemaphores(
+            *frameResources.renderFinishedSemaphore(imageIndex));
 
     try
     {
-        queue.submit(submitInfo, *inFlightFences[frameIndex]);
+        queue.submit(
+            submitInfo,
+            *frameResources.inFlightFence(currentFrame));
     }
     catch (const vk::SystemError& err)
     {
@@ -1849,10 +1592,15 @@ void Renderer::drawFrame()
         throw;
     }
 
+    std::array<vk::SwapchainKHR, 1> swapchains = {
+        swapchain.get()
+    };
+
     vk::PresentInfoKHR presentInfo{};
     presentInfo
-        .setWaitSemaphores(*renderFinishedSemaphores[imageIndex])
-        .setSwapchains(*swapChain)
+        .setWaitSemaphores(
+            *frameResources.renderFinishedSemaphore(imageIndex))
+        .setSwapchains(swapchains)
         .setPImageIndices(&imageIndex);
 
     try
@@ -1880,20 +1628,26 @@ void Renderer::drawFrame()
         throw std::runtime_error("failed to present swap chain image!");
     }
 
-    frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+
+
+    frameResources.advanceFrame(MAX_FRAMES_IN_FLIGHT);
 }
 
 void Renderer::recordCommandBuffer(uint32_t imageIndex) 
 {
-    auto& commandBuffer = commandBuffers[frameIndex];
+    uint32_t currentFrame = frameResources.currentFrameIndex();
+
+    auto& commandBuffer =
+        frameResources.commandBuffer(currentFrame);
+
     commandBuffer.begin(vk::CommandBufferBeginInfo{});
 
     vk::CommandBuffer cmd = *commandBuffer;
-    const auto& extent = swapChainExtent;
+	const auto extent = swapchain.extent();
 
     TransitionUtils::transitionToColorAttachment(
         cmd,
-        *colorImage,
+        *renderTargets.colorImage(),
         vk::ImageLayout::eUndefined);
 
     TransitionUtils::transitionToColorAttachment(
@@ -1902,7 +1656,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         vk::ImageLayout::eUndefined);
 
     vk::ImageLayout swapChainOldLayout =
-        swapChainImageInitialized[imageIndex]
+        frameResources.imageInitialized(imageIndex)
         ? vk::ImageLayout::ePresentSrcKHR
         : vk::ImageLayout::eUndefined;
 
@@ -1910,8 +1664,9 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
     TransitionUtils::transitionToDepthAttachment(
         cmd,
-        *depthImage,
-        depthAspect);
+        *renderTargets.depthImage(),
+        renderTargets.depthAspect());
+        
 
     vk::ClearValue clearColorValue = vk::ClearColorValue(
         clearColor.r,
@@ -1923,7 +1678,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
     vk::RenderingAttachmentInfo colorAttachmentInfo{};
     colorAttachmentInfo
-        .setImageView(*colorImageView)
+        .setImageView(*renderTargets.colorView())
         .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
         .setLoadOp(vk::AttachmentLoadOp::eClear)
         .setStoreOp(vk::AttachmentStoreOp::eDontCare)
@@ -1934,7 +1689,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
     vk::RenderingAttachmentInfo depthAttachmentInfo{};
     depthAttachmentInfo
-        .setImageView(*depthImageView)
+        .setImageView(*renderTargets.depthView())
         .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
         .setLoadOp(vk::AttachmentLoadOp::eClear)
         .setStoreOp(vk::AttachmentStoreOp::eDontCare)
@@ -2036,7 +1791,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             activePipeline);
 
         std::array<vk::DescriptorSet, 3> sets = {
-            *frameDescriptorSets[frameIndex],
+            *frameDescriptorSets[frameResources.currentFrameIndex()],
             *materialDescriptorSets[materialIndex],
             *iblDescriptorSet
         };
@@ -2158,7 +1913,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             activePipeline);
 
         std::array<vk::DescriptorSet, 3> sets = {
-            *frameDescriptorSets[frameIndex],
+            *frameDescriptorSets[frameResources.currentFrameIndex()],
             *materialDescriptorSets[materialIndex],
             *iblDescriptorSet
         };
@@ -2283,16 +2038,16 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     // Final post-process pass
     TransitionUtils::transitionToColorAttachment(
         cmd,
-        swapChainImages[imageIndex],
+        swapchain.images()[imageIndex],
         swapChainOldLayout);
 
     drawPostProcessToSwapchain(commandBuffer, imageIndex);
 
     TransitionUtils::transitionToPresent(
         cmd,
-        swapChainImages[imageIndex]);
+        swapchain.images()[imageIndex]);
 
-    swapChainImageInitialized[imageIndex] = true;
+    frameResources.markImageInitialized(imageIndex);
 
     commandBuffer.end();
 
@@ -2804,47 +2559,7 @@ void Renderer::cleanupDescriptorResources()
     descriptorPool = nullptr;
 }
 
-uint32_t Renderer::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities)
-{
-    auto minImageCount = std::max(3u, surfaceCapabilities.minImageCount);
-    if ((0 < surfaceCapabilities.maxImageCount) && (surfaceCapabilities.maxImageCount < minImageCount))
-    {
-        minImageCount = surfaceCapabilities.maxImageCount;
-    }
-    return minImageCount;
-}
 
-vk::SurfaceFormatKHR Renderer::chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats)
-{
-    assert(!availableFormats.empty());
-    const auto formatIt = std::ranges::find_if(
-        availableFormats,
-        [](const auto& format) { return format.format == vk::Format::eB8G8R8A8Srgb && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear; });
-    return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
-}
-
-vk::PresentModeKHR Renderer::chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const& availablePresentModes)
-{
-    assert(std::ranges::any_of(availablePresentModes, [](auto presentMode) { return presentMode == vk::PresentModeKHR::eFifo; }));
-    return std::ranges::any_of(availablePresentModes,
-        [](const vk::PresentModeKHR value) { return vk::PresentModeKHR::eMailbox == value; }) ?
-        vk::PresentModeKHR::eMailbox :
-        vk::PresentModeKHR::eFifo;
-}
-
-vk::Extent2D Renderer::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabilities)
-{
-    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
-    {
-        return capabilities.currentExtent;
-    }
-    int width, height;
-    window.getFramebufferSize(width, height);
-
-    return {
-        std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-        std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height) };
-}
 
 void Renderer::updateCameraControls()
 {
@@ -3181,9 +2896,9 @@ void Renderer::updateIBLDescriptorSet()
     }
 
     const bool hasFallbackBrdf =
-        brdfLutTexture &&
-        brdfLutTexture->getSampler() != nullptr &&
-        brdfLutTexture->getImageView() != nullptr;
+        fallbackBrdfLut &&
+        fallbackBrdfLut->getSampler() != nullptr &&
+        fallbackBrdfLut->getImageView() != nullptr;
 
     const bool hasRuntimeBrdf =
         environment.runtimeBrdfLut.sampler != nullptr &&
@@ -3282,9 +2997,9 @@ void Renderer::resetEnvironmentSettings()
     diffuseIBLIntensity = 1.0f;
     specularIBLIntensity = 1.0f;
 
-    toneMappingEnabled = true;
-    gammaEnabled = true;
-    postExposure = 1.0f;
+    postProcessRenderer->toneMappingEnabled = true;
+    postProcessRenderer->gammaEnabled    = true;
+    postProcessRenderer->postExposure = 1.0f;
 
     environmentRotationDegrees = 0.0f;
     rotateSkybox = true;
@@ -3611,7 +3326,7 @@ void Renderer::createSkyboxPipeline()
 
     pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
         .setColorAttachmentFormats(colorAttachmentFormats)
-        .setDepthAttachmentFormat(depthFormat);
+        .setDepthAttachmentFormat(renderTargets.depthFormat());
 
     skyboxPipeline = vk::raii::Pipeline(
         device,
@@ -3664,7 +3379,7 @@ void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t image
     */
 
     std::array<vk::DescriptorSet, 2> sets = {
-        *frameDescriptorSets[frameIndex],
+        *frameDescriptorSets[frameResources.currentFrameIndex()],
         *iblDescriptorSet
     };
 
@@ -3699,7 +3414,7 @@ void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
     iblIntensity = preset.iblIntensity;
     diffuseIBLIntensity = preset.diffuseIBLIntensity;
     specularIBLIntensity = preset.specularIBLIntensity;
-    postExposure = preset.postExposure;
+    postProcessRenderer->postExposure = preset.postExposure;
 }
 
 void Renderer::resetIblEnergyCalibration()
@@ -3751,13 +3466,13 @@ void Renderer::initImGui()
     initInfo.QueueFamily = vkContext.getQueueIndex();
     initInfo.Queue = *queue;
     initInfo.DescriptorPool = *imguiDescriptorPool;
-    initInfo.MinImageCount = static_cast<uint32_t>(swapChainImages.size());
-    initInfo.ImageCount = static_cast<uint32_t>(swapChainImages.size());
+    initInfo.MinImageCount = static_cast<uint32_t>(swapchain.images().size());
+    initInfo.ImageCount = static_cast<uint32_t>(swapchain.images().size());
     initInfo.UseDynamicRendering = true;
     initInfo.CheckVkResultFn = nullptr;
 
     VkFormat colorFormat =
-        static_cast<VkFormat>(swapChainSurfaceFormat.format);
+        static_cast<VkFormat>(swapchain.surfaceFormat().format);
 
     initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -3848,14 +3563,14 @@ void Renderer::buildImGui()
             diffuseIBLIntensity,
             specularIBLIntensity,
 
-            toneMappingEnabled,
-            gammaEnabled,
-            postExposure,
+            postProcessRenderer->toneMappingEnabled,
+            postProcessRenderer->gammaEnabled,
+            postProcessRenderer->postExposure,
 
-            bloomEnabled,
+            postProcessRenderer->bloomEnabled,
             postProcessRenderer->bloomThreshold,
             postProcessRenderer->bloomKnee,
-            bloomStrength,
+            postProcessRenderer->bloomStrength,
 
             postProcessRenderer->bloomIntensity,
             postProcessRenderer->bloomUpsampleRadius,
@@ -3920,8 +3635,8 @@ void Renderer::buildImGui()
 
         EditorPanels::drawRendererPanel(
             vkContext,
-            swapChainExtent,
-            swapChainImages.size(),
+            swapchain.extent(),
+            swapchain.images().size(),
             textures.empty() ? nullptr : &getDefaultTexture(),
             vkContext.getMsaaSamples(),
             gpuMeshes.size(),
