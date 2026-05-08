@@ -101,6 +101,7 @@
     <ClCompile Include="PostProcessRenderer.cpp" />
     <ClCompile Include="PrefilterRenderer.cpp" />
     <ClCompile Include="RenderTargets.cpp" />
+    <ClCompile Include="ScenePipelines.cpp" />
     <ClCompile Include="ShaderUtils.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="SwapchainManager.cpp" />
@@ -141,6 +142,7 @@
     <ClInclude Include="RendererTypes.hpp" />
     <ClInclude Include="RenderTargets.hpp" />
     <ClInclude Include="Scene.hpp" />
+    <ClInclude Include="ScenePipelines.hpp" />
     <ClInclude Include="ShaderUtils.hpp" />
     <ClInclude Include="SwapchainManager.hpp" />
     <ClInclude Include="Texture2D.hpp" />

@@ -43,6 +43,7 @@ import vulkan_hpp;
 #include "PostProcessRenderer.hpp"
 #include "RenderTargets.hpp"
 #include "FrameResources.hpp"
+#include "ScenePipelines.hpp"
 
 
 
@@ -65,7 +66,7 @@ public:
     
     
     void createDescriptorSetLayout();
-    void createGraphicsPipeline();
+    
     
     void drawFrame();
 
@@ -121,6 +122,7 @@ private:
     SwapchainManager    swapchain;
     RenderTargets       renderTargets;
     FrameResources      frameResources;
+    ScenePipelines      scenePipelines;
 
     struct GltfTextureUploadMaps
     {
@@ -153,10 +155,7 @@ private:
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
 
-    vk::raii::Pipeline solidPipeline = nullptr;
-    vk::raii::Pipeline solidDoubleSidedPipeline = nullptr;
-    vk::raii::Pipeline wireframePipeline = nullptr;
-    vk::raii::Pipeline wireframeDoubleSidedPipeline = nullptr;
+
 
     std::string currentModelPath;
      
@@ -233,7 +232,7 @@ private:
     
     
 
-    vk::raii::PipelineLayout                    pipelineLayout = nullptr;
+    
 
     std::unique_ptr<PostProcessRenderer> postProcessRenderer;
 
@@ -265,7 +264,7 @@ private:
 
 
     void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
-    void createSkyboxPipeline();
+    
     void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
     void resetEnvironmentSettings();
 
@@ -276,8 +275,8 @@ private:
     vk::raii::ImageView environmentCubeView{ nullptr };
     vk::raii::Sampler environmentCubeSampler{ nullptr };
 
-    vk::raii::PipelineLayout skyboxPipelineLayout{ nullptr };
-    vk::raii::Pipeline skyboxPipeline{ nullptr };
+    
+    
 
 
     // IBL descriptor set
@@ -368,8 +367,7 @@ private:
 
     bool debugSkyboxFaces = false;
 
-    vk::raii::Pipeline transparentPipeline = nullptr;
-    vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;
+    
 
     vk::raii::Image hdrEnvironmentImage{ nullptr };
     vk::raii::DeviceMemory hdrEnvironmentMemory{ nullptr };

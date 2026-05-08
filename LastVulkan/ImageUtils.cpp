@@ -3,12 +3,6 @@
 #include <array>
 #include <stdexcept>
 
-ImageUtils::ImageUtils(VulkanContext& vkContext, BufferUtils& bufferUtils)
-    : vkContext(vkContext)
-    , bufferUtils(bufferUtils)
-{
-}
-
 namespace
 {
     void pipelineImageBarrier2(
@@ -41,6 +35,14 @@ namespace
         commandBuffer.pipelineBarrier2(dependencyInfo);
     }
 }
+
+ImageUtils::ImageUtils(VulkanContext& vkContext, BufferUtils& bufferUtils)
+    : vkContext(vkContext)
+    , bufferUtils(bufferUtils)
+{
+}
+
+
 
 
 void ImageUtils::createImage(

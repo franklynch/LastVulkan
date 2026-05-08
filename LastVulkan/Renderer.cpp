@@ -43,6 +43,7 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , swapchain(window, vkContext)
     , renderTargets(vkContext, imageUtils)
     , frameResources(vkContext)
+    , scenePipelines(vkContext)
 {
     init();
 }
@@ -126,6 +127,7 @@ void Renderer::init()
     
 
     frameResources.createCommandBuffers(MAX_FRAMES_IN_FLIGHT);
+
     frameResources.createSyncObjects(
         MAX_FRAMES_IN_FLIGHT,
         swapchain.imageCount());
@@ -133,15 +135,28 @@ void Renderer::init()
 
     createDescriptorSetLayout();
 
-    
+    scenePipelines.create(
+        swapchain.extent(),
+        postProcessRenderer->getHdrFormat(),
+        renderTargets.depthFormat(),
+        *frameDescriptorSetLayout,
+        *materialDescriptorSetLayout,
+        *iblDescriptorSetLayout,
+        isWireframeSupported());
+
+    scenePipelines.createSkybox(
+        swapchain.extent(),
+        postProcessRenderer->getHdrFormat(),
+        renderTargets.depthFormat(),
+        *frameDescriptorSetLayout,
+        *iblDescriptorSetLayout);
 
     
    
            
 
 
-    createGraphicsPipeline();
-    createSkyboxPipeline();
+    
     clearSceneResources();
     createDefaultMaterialTextures();
     setupCameraDefaults();
@@ -209,20 +224,7 @@ void Renderer::init()
 
 void Renderer::cleanupSwapChain()
 {
-    solidPipeline = nullptr;
-    solidDoubleSidedPipeline = nullptr;
-    wireframePipeline = nullptr;
-    wireframeDoubleSidedPipeline = nullptr;
-    transparentPipeline = nullptr;
-    transparentDoubleSidedPipeline = nullptr;
-
-    pipelineLayout = nullptr;
-
-    skyboxPipeline = nullptr;
-    skyboxPipelineLayout = nullptr;
-
-    
-
+   scenePipelines.cleanup();
     renderTargets.cleanup();
     swapchain.cleanup();
 
@@ -262,15 +264,24 @@ void Renderer::recreateSwapChain()
     
     frameResources.recreateSwapchainDependent(swapchain.imageCount());
 
-    createGraphicsPipeline();
-    createSkyboxPipeline();
-    
-    
-    
-    
-    
+    scenePipelines.cleanup();
 
-    
+    scenePipelines.create(
+        swapchain.extent(),
+        postProcessRenderer->getHdrFormat(),
+        renderTargets.depthFormat(),
+        *frameDescriptorSetLayout,
+        *materialDescriptorSetLayout,
+        *iblDescriptorSetLayout,
+        isWireframeSupported());
+
+    scenePipelines.createSkybox(
+        swapchain.extent(),
+        postProcessRenderer->getHdrFormat(),
+        renderTargets.depthFormat(),
+        *frameDescriptorSetLayout,
+        *iblDescriptorSetLayout);
+
     
 }
 
@@ -396,275 +407,6 @@ void Renderer::createDescriptorSetLayout()
         
 
 
-    }
-}
-
-void Renderer::createGraphicsPipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::raii::ShaderModule vertShaderModule =
-        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/vert.spv");
-
-    vk::raii::ShaderModule fragShaderModule =
-        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/frag.spv");
-
-    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
-    vertShaderStageInfo
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
-    fragShaderStageInfo
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertShaderStageInfo,
-        fragShaderStageInfo
-    };
-
-    auto bindingDescription = Vertex::getBindingDescription();
-    auto attributeDescriptions = Vertex::getAttributeDescriptions();
-
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo
-        .setVertexBindingDescriptions(bindingDescription)
-        .setVertexAttributeDescriptions(attributeDescriptions);
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vkContext.getMsaaSamples())
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_TRUE)
-        .setDepthWriteEnable(VK_TRUE)
-        .setDepthCompareOp(vk::CompareOp::eLess)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo transparentDepthStencil{};
-    transparentDepthStencil
-        .setDepthTestEnable(VK_TRUE)
-        .setDepthWriteEnable(VK_FALSE)
-        .setDepthCompareOp(vk::CompareOp::eLess)
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA
-        );
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setLogicOp(vk::LogicOp::eCopy)
-        .setAttachments(colorBlendAttachment);
-
-    vk::PipelineColorBlendAttachmentState transparentBlendAttachment{};
-    transparentBlendAttachment
-        .setBlendEnable(VK_TRUE)
-        .setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-        .setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-        .setColorBlendOp(vk::BlendOp::eAdd)
-        .setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-        .setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-        .setAlphaBlendOp(vk::BlendOp::eAdd)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA
-        );
-
-    vk::PipelineColorBlendStateCreateInfo transparentColorBlending{};
-    transparentColorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setLogicOp(vk::LogicOp::eCopy)
-        .setAttachments(transparentBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    vk::PushConstantRange pushConstantRange{};
-    pushConstantRange
-        .setStageFlags(
-            vk::ShaderStageFlagBits::eVertex |
-            vk::ShaderStageFlagBits::eFragment)
-        .setOffset(0)
-        .setSize(sizeof(PushConstantData));
-
-    // Main scene pipeline layout:
-    // set 0 = frame UBO
-    // set 1 = material textures
-    // set 2 = IBL textures
-    std::array<vk::DescriptorSetLayout, 3> setLayouts = {
-        *frameDescriptorSetLayout,
-        *materialDescriptorSetLayout,
-        *iblDescriptorSetLayout
-    };
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo
-        .setSetLayouts(setLayouts)
-        .setPushConstantRanges(pushConstantRange);
-
-    pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineCreateInfoChain{};
-
-    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInputInfo)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*pipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    std::array<vk::Format, 1> colorAttachmentFormats = {
-        postProcessRenderer->getHdrFormat()};
-
-    pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
-		.setColorAttachmentFormats(colorAttachmentFormats)
-        .setDepthAttachmentFormat(renderTargets.depthFormat());
-
-    // -------------------------
-    // Opaque pipelines
-    // -------------------------
-
-    // Filled, culled
-    rasterizer
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eBack);
-
-    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending);
-
-    solidPipeline = vk::raii::Pipeline(
-        device,
-        nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-    );
-
-    // Filled, double-sided
-    rasterizer
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone);
-
-    solidDoubleSidedPipeline = vk::raii::Pipeline(
-        device,
-        nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-    );
-
-    // -------------------------
-    // Transparent pipelines
-    // -------------------------
-
-    // Transparent, culled
-    rasterizer
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eBack);
-
-    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setPDepthStencilState(&transparentDepthStencil)
-        .setPColorBlendState(&transparentColorBlending);
-
-    transparentPipeline = vk::raii::Pipeline(
-        device,
-        nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-    );
-
-    // Transparent, double-sided
-    rasterizer
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone);
-
-    transparentDoubleSidedPipeline = vk::raii::Pipeline(
-        device,
-        nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-    );
-
-    // -------------------------
-    // Wireframe opaque pipelines
-    // -------------------------
-
-    wireframePipeline = nullptr;
-    wireframeDoubleSidedPipeline = nullptr;
-
-    if (vkContext.isFillModeNonSolidEnabled())
-    {
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-            .setPDepthStencilState(&depthStencil)
-            .setPColorBlendState(&colorBlending);
-
-        // Wireframe, culled
-        rasterizer
-            .setPolygonMode(vk::PolygonMode::eLine)
-            .setCullMode(vk::CullModeFlagBits::eBack);
-
-        wireframePipeline = vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        );
-
-        // Wireframe, double-sided
-        rasterizer
-            .setPolygonMode(vk::PolygonMode::eLine)
-            .setCullMode(vk::CullModeFlagBits::eNone);
-
-        wireframeDoubleSidedPipeline = vk::raii::Pipeline(
-            device,
-            nullptr,
-            pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        );
     }
 }
 
@@ -1747,44 +1489,12 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             0,
             vk::IndexType::eUint32);
 
-        vk::Pipeline activePipeline = *solidPipeline;
+        
 
-        if (uiState.wireframeRequested)
-        {
-            if (renderableMaterial.isDoubleSided())
-            {
-                if (wireframeDoubleSidedPipeline != nullptr)
-                {
-                    activePipeline = *wireframeDoubleSidedPipeline;
-                }
-                else
-                {
-                    activePipeline = *solidDoubleSidedPipeline;
-                }
-            }
-            else
-            {
-                if (wireframePipeline != nullptr)
-                {
-                    activePipeline = *wireframePipeline;
-                }
-                else
-                {
-                    activePipeline = *solidPipeline;
-                }
-            }
-        }
-        else
-        {
-            if (renderableMaterial.isDoubleSided())
-            {
-                activePipeline = *solidDoubleSidedPipeline;
-            }
-            else
-            {
-                activePipeline = *solidPipeline;
-            }
-        }
+        vk::Pipeline activePipeline =
+            uiState.wireframeRequested
+            ? scenePipelines.wireframe(renderableMaterial.isDoubleSided())
+            : scenePipelines.solid(renderableMaterial.isDoubleSided());
 
         commandBuffer.bindPipeline(
             vk::PipelineBindPoint::eGraphics,
@@ -1798,7 +1508,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
-            *pipelineLayout,
+            scenePipelines.layout(),
             0,
             sets,
             {});
@@ -1841,7 +1551,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         
 
         cmd.pushConstants(
-            *pipelineLayout,
+            scenePipelines.layout(),
             vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
             0,
             sizeof(PushConstantData),
@@ -1904,9 +1614,8 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
             vk::IndexType::eUint32);
 
         vk::Pipeline activePipeline =
-            renderableMaterial.isDoubleSided()
-            ? *transparentDoubleSidedPipeline
-            : *transparentPipeline;
+            scenePipelines.transparent(
+                renderableMaterial.isDoubleSided());
 
         commandBuffer.bindPipeline(
             vk::PipelineBindPoint::eGraphics,
@@ -1920,7 +1629,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
-            *pipelineLayout,
+            scenePipelines.layout(),
             0,
             sets,
             {});
@@ -1963,7 +1672,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         
 
         cmd.pushConstants(
-            *pipelineLayout,
+            scenePipelines.layout(),
             vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
             0,
             sizeof(PushConstantData),
@@ -3203,193 +2912,46 @@ void Renderer::createHdrEnvironmentTexture(const std::string& path)
         << hdrEnvironmentHeight << "\n";
 }
 
-void Renderer::createSkyboxPipeline()
-{
-    auto& device = vkContext.getDevice();
-
-    vk::raii::ShaderModule vertShaderModule =
-        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/skybox_vert.spv");
-
-    vk::raii::ShaderModule fragShaderModule =
-        ShaderUtils::createShaderModule(vkContext.getDevice(), "shaders/skybox_frag.spv");
-
-    vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
-    vertShaderStageInfo
-        .setStage(vk::ShaderStageFlagBits::eVertex)
-        .setModule(*vertShaderModule)
-        .setPName("main");
-
-    vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
-    fragShaderStageInfo
-        .setStage(vk::ShaderStageFlagBits::eFragment)
-        .setModule(*fragShaderModule)
-        .setPName("main");
-
-    std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages = {
-        vertShaderStageInfo,
-        fragShaderStageInfo
-    };
-
-    // Fullscreen triangle: no vertex buffers, no attributes.
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly
-        .setTopology(vk::PrimitiveTopology::eTriangleList)
-        .setPrimitiveRestartEnable(VK_FALSE);
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState
-        .setViewportCount(1)
-        .setScissorCount(1);
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer
-        .setDepthClampEnable(VK_FALSE)
-        .setRasterizerDiscardEnable(VK_FALSE)
-        .setPolygonMode(vk::PolygonMode::eFill)
-        .setCullMode(vk::CullModeFlagBits::eNone)
-        .setFrontFace(vk::FrontFace::eCounterClockwise)
-        .setDepthBiasEnable(VK_FALSE)
-        .setLineWidth(1.0f);
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling
-        .setRasterizationSamples(vkContext.getMsaaSamples())
-        .setSampleShadingEnable(VK_FALSE);
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil
-        .setDepthTestEnable(VK_FALSE)
-        .setDepthWriteEnable(VK_FALSE)
-
-        .setDepthBoundsTestEnable(VK_FALSE)
-        .setStencilTestEnable(VK_FALSE);
-
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment
-        .setBlendEnable(VK_FALSE)
-        .setColorWriteMask(
-            vk::ColorComponentFlagBits::eR |
-            vk::ColorComponentFlagBits::eG |
-            vk::ColorComponentFlagBits::eB |
-            vk::ColorComponentFlagBits::eA
-        );
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending
-        .setLogicOpEnable(VK_FALSE)
-        .setLogicOp(vk::LogicOp::eCopy)
-        .setAttachments(colorBlendAttachment);
-
-    std::vector<vk::DynamicState> dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
-
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.setDynamicStates(dynamicStates);
-
-    // Skybox pipeline layout:
-    // set 0 = frame UBO
-    // set 1 = IBL descriptor set
-    std::array<vk::DescriptorSetLayout, 2> setLayouts = {
-        *frameDescriptorSetLayout,
-        *iblDescriptorSetLayout
-    };
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setSetLayouts(setLayouts);
-
-    skyboxPipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
-
-    vk::StructureChain<
-        vk::GraphicsPipelineCreateInfo,
-        vk::PipelineRenderingCreateInfo
-    > pipelineCreateInfoChain{};
-
-    pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-        .setStages(shaderStages)
-        .setPVertexInputState(&vertexInputInfo)
-        .setPInputAssemblyState(&inputAssembly)
-        .setPViewportState(&viewportState)
-        .setPRasterizationState(&rasterizer)
-        .setPMultisampleState(&multisampling)
-        .setPDepthStencilState(&depthStencil)
-        .setPColorBlendState(&colorBlending)
-        .setPDynamicState(&dynamicState)
-        .setLayout(*skyboxPipelineLayout)
-        .setRenderPass(vk::RenderPass{});
-
-    std::array<vk::Format, 1> colorAttachmentFormats = {
-        postProcessRenderer->getHdrFormat() };
-
-    pipelineCreateInfoChain.get<vk::PipelineRenderingCreateInfo>()
-        .setColorAttachmentFormats(colorAttachmentFormats)
-        .setDepthAttachmentFormat(renderTargets.depthFormat());
-
-    skyboxPipeline = vk::raii::Pipeline(
-        device,
-        nullptr,
-        pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>()
-    );
-}
-
-
-
-
-
 
 
 void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex)
 {
     (void)imageIndex;
 
-    if (skyboxPipeline == nullptr || skyboxPipelineLayout == nullptr)
+    if (scenePipelines.skybox() == nullptr ||
+        scenePipelines.skyboxLayout() == nullptr)
+    {
         return;
+    }
 
     if (iblDescriptorSet == nullptr)
+    {
         return;
+    }
 
-    if (environmentCubeView == nullptr || environmentCubeSampler == nullptr)
+    if (environmentCubeView == nullptr ||
+        environmentCubeSampler == nullptr)
+    {
         return;
+    }
 
     commandBuffer.bindPipeline(
         vk::PipelineBindPoint::eGraphics,
-        *skyboxPipeline
-    );
-
- /*   vk::Viewport viewport{};
-    viewport
-        .setX(0.0f)
-        .setY(0.0f)
-        .setWidth(static_cast<float>(swapChainExtent.width))
-        .setHeight(static_cast<float>(swapChainExtent.height))
-        .setMinDepth(0.0f)
-        .setMaxDepth(1.0f);
-
-    vk::Rect2D scissor{};
-    scissor
-        .setOffset(vk::Offset2D{ 0, 0 })
-        .setExtent(swapChainExtent);
-
-    commandBuffer.setViewport(0, viewport);
-    commandBuffer.setScissor(0, scissor);
-
-    */
+        scenePipelines.skybox());
 
     std::array<vk::DescriptorSet, 2> sets = {
-        *frameDescriptorSets[frameResources.currentFrameIndex()],
-        *iblDescriptorSet
+     *frameDescriptorSets[frameResources.currentFrameIndex()],
+     *iblDescriptorSet
     };
 
     commandBuffer.bindDescriptorSets(
         vk::PipelineBindPoint::eGraphics,
-        *skyboxPipelineLayout,
+        scenePipelines.skyboxLayout(),
         0,
         sets,
         {}
     );
+    
 
     commandBuffer.draw(3, 1, 0, 0);
 }
@@ -3679,9 +3241,6 @@ void Renderer::buildImGui()
     }
 }
  
-
-    
-
 
 
 void Renderer::renderImGui(vk::CommandBuffer commandBuffer)
