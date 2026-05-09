@@ -331,16 +331,8 @@ private:
     vk::raii::ImageView prefilteredCubeView{ nullptr };
     vk::raii::Sampler prefilteredCubeSampler{ nullptr };
 
-    void createCubemapFromDDS(
-        const std::string& path,
-        vk::raii::Image& outImage,
-        vk::raii::DeviceMemory& outMemory,
-        vk::raii::ImageView& outView,
-        vk::raii::Sampler& outSampler,
-        bool allowMipSampling);
 
-    void createIrradianceCubemapFromDDS(const std::string& path);
-    void createPrefilteredCubemapFromDDS(const std::string& path);
+  
 
    
 

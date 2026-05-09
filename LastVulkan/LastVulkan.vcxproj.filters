@@ -75,9 +75,6 @@
     <ClCompile Include="TinyGltfImpl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="DdsUtils.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="EnvironmentUtils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -192,9 +189,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="GltfLoader.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="DdsUtils.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="EnvironmentResources.hpp">
