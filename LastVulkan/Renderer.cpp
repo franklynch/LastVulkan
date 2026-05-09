@@ -40,6 +40,7 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , vkContext(vkContext)
     , bufferUtils(vkContext)
     , imageUtils(vkContext, bufferUtils)
+    , gltfSceneLoader(vkContext, bufferUtils, imageUtils)
     , swapchain(window, vkContext)
     , renderTargets(vkContext, imageUtils)
     , frameResources(vkContext)
@@ -161,13 +162,30 @@ void Renderer::init()
     createDefaultMaterialTextures();
     setupCameraDefaults();
 
-    GltfSceneData imported = loadCurrentGltfScene();
+    currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
+    
 
-    GltfTextureUploadMaps textureMaps =
-        uploadGltfTextures(imported);
+    gltfSceneLoader.load(
+        currentModelPath,
+        scene,
+        gpuMeshes,
+        textures,
+        normalTextures,
+        metallicRoughnessTextures,
+        aoTextures,
+        emissiveTextures,
+        materials,
+        getDefaultTexture(),
+        *defaultNormalTexture,
+        *defaultMetallicRoughnessTexture,
+        *defaultAoTexture,
+        *defaultEmissiveTexture,
+        camera);
 
-    createMaterialsFromGltf(imported, textureMaps);
-    createRenderablesFromGltf(imported);
+   
+
+
+    
 
     
 
@@ -185,8 +203,8 @@ void Renderer::init()
     createDescriptorSets();
     createMaterialDescriptorSets();
 
-    createIrradianceCubemapFromDDS("assets/ibl/output_iem.dds");
-    createPrefilteredCubemapFromDDS("assets/ibl/output_pmrem.dds");
+   // createIrradianceCubemapFromDDS("assets/ibl/output_iem.dds");
+     //createPrefilteredCubemapFromDDS("assets/ibl/output_pmrem.dds");
 
     createEnvironmentCubemap({
     "assets/skybox/right.jpg",
@@ -475,452 +493,6 @@ void Renderer::setupCameraDefaults()
     camera.setFov(cameraFov);
     camera.setNearFar(cameraNear, cameraFar);
 }
-
-GltfSceneData Renderer::loadCurrentGltfScene()
-{
-    currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
-
-    //currentModelPath ="models/Suzanne/gLTF/Suzanne.gltf";
-
-    std::cout << "Loading model: " << currentModelPath << std::endl;
-
-    GltfLoader loader;
-    return loader.load(currentModelPath);
-}
-
-Renderer::GltfTextureUploadMaps Renderer::uploadGltfTextures(
-    const GltfSceneData& imported)
-{
-    std::vector<bool> imageUsedAsBaseColor(imported.images.size(), false);
-    std::vector<bool> imageUsedAsNormal(imported.images.size(), false);
-    std::vector<bool> imageUsedAsMR(imported.images.size(), false);
-    std::vector<bool> imageUsedAsAO(imported.images.size(), false);
-    std::vector<bool> imageUsedAsEmissive(imported.images.size(), false);
-
-    GltfTextureUploadMaps maps;
-    maps.baseColor.resize(imported.images.size(), -1);
-    maps.normal.resize(imported.images.size(), -1);
-    maps.metallicRoughness.resize(imported.images.size(), -1);
-    maps.occlusion.resize(imported.images.size(), -1);
-    maps.emissive.resize(imported.images.size(), -1);
-
-    for (const auto& importedMaterial : imported.materials)
-    {
-        if (importedMaterial.baseColorImageIndex >= 0 &&
-            importedMaterial.baseColorImageIndex < static_cast<int>(imageUsedAsBaseColor.size()))
-        {
-            imageUsedAsBaseColor[importedMaterial.baseColorImageIndex] = true;
-        }
-
-        if (importedMaterial.normalImageIndex >= 0 &&
-            importedMaterial.normalImageIndex < static_cast<int>(imageUsedAsNormal.size()))
-        {
-            imageUsedAsNormal[importedMaterial.normalImageIndex] = true;
-        }
-
-        if (importedMaterial.metallicRoughnessImageIndex >= 0 &&
-            importedMaterial.metallicRoughnessImageIndex < static_cast<int>(imageUsedAsMR.size()))
-        {
-            imageUsedAsMR[importedMaterial.metallicRoughnessImageIndex] = true;
-        }
-
-        if (importedMaterial.occlusionImageIndex >= 0 &&
-            importedMaterial.occlusionImageIndex < static_cast<int>(imageUsedAsAO.size()))
-        {
-            imageUsedAsAO[importedMaterial.occlusionImageIndex] = true;
-        }
-
-        if (importedMaterial.emissiveImageIndex >= 0 &&
-            importedMaterial.emissiveImageIndex < static_cast<int>(imageUsedAsEmissive.size()))
-        {
-            imageUsedAsEmissive[importedMaterial.emissiveImageIndex] = true;
-        }
-    }
-
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        if (!imageUsedAsBaseColor[i])
-            continue;
-
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
-            continue;
-
-        if (image.channels != 3 && image.channels != 4)
-        {
-            std::cout << "Skipping glTF baseColor image " << i
-                << " (" << image.name << ") because channels = "
-                << image.channels << " (expected 3 or 4)\n";
-            continue;
-        }
-
-        textures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty()
-            ? ("glTF baseColor image " + std::to_string(i))
-            : image.name,
-            vk::Format::eR8G8B8A8Srgb));
-
-        maps.baseColor[i] = static_cast<int>(textures.size()) - 1;
-    }
-
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        if (!imageUsedAsNormal[i])
-            continue;
-
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
-            continue;
-
-        if (image.channels != 3 && image.channels != 4)
-        {
-            std::cout << "Skipping glTF normal image " << i
-                << " (" << image.name << ") because channels = "
-                << image.channels << " (expected 3 or 4)\n";
-            continue;
-        }
-
-        normalTextures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty()
-            ? ("glTF normal image " + std::to_string(i))
-            : image.name,
-            vk::Format::eR8G8B8A8Unorm));
-
-        maps.normal[i] = static_cast<int>(normalTextures.size()) - 1;
-    }
-
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        if (!imageUsedAsMR[i])
-            continue;
-
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
-            continue;
-
-        if (image.channels != 3 && image.channels != 4)
-        {
-            std::cout << "Skipping glTF metallicRoughness image " << i
-                << " (" << image.name << ") because channels = "
-                << image.channels << " (expected 3 or 4)\n";
-            continue;
-        }
-
-        metallicRoughnessTextures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty()
-            ? ("glTF metallicRoughness image " + std::to_string(i))
-            : image.name,
-            vk::Format::eR8G8B8A8Unorm));
-
-        maps.metallicRoughness[i] =
-            static_cast<int>(metallicRoughnessTextures.size()) - 1;
-    }
-
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        if (!imageUsedAsAO[i])
-            continue;
-
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
-            continue;
-
-        if (image.channels != 3 && image.channels != 4)
-        {
-            std::cout << "Skipping glTF AO image " << i
-                << " (" << image.name << ") because channels = "
-                << image.channels << " (expected 3 or 4)\n";
-            continue;
-        }
-
-        aoTextures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty()
-            ? ("glTF AO image " + std::to_string(i))
-            : image.name,
-            vk::Format::eR8G8B8A8Unorm));
-
-        maps.occlusion[i] = static_cast<int>(aoTextures.size()) - 1;
-    }
-
-    for (size_t i = 0; i < imported.images.size(); ++i)
-    {
-        if (!imageUsedAsEmissive[i])
-            continue;
-
-        const auto& image = imported.images[i];
-
-        if (image.pixels.empty() || image.width <= 0 || image.height <= 0)
-            continue;
-
-        if (image.channels != 3 && image.channels != 4)
-        {
-            std::cout << "Skipping glTF emissive image " << i
-                << " (" << image.name << ") because channels = "
-                << image.channels << " (expected 3 or 4)\n";
-            continue;
-        }
-
-        emissiveTextures.push_back(std::make_unique<Texture2D>(
-            vkContext,
-            bufferUtils,
-            imageUtils,
-            image.pixels.data(),
-            static_cast<uint32_t>(image.width),
-            static_cast<uint32_t>(image.height),
-            static_cast<uint32_t>(image.channels),
-            image.name.empty()
-            ? ("glTF emissive image " + std::to_string(i))
-            : image.name,
-            vk::Format::eR8G8B8A8Srgb));
-
-        maps.emissive[i] = static_cast<int>(emissiveTextures.size()) - 1;
-    }
-
-    return maps;
-}
-
-void Renderer::createMaterialsFromGltf(
-    const GltfSceneData& imported,
-    const GltfTextureUploadMaps& textureMaps)
-{
-    // Slot 0 = default fallback material
-    auto fallbackMaterial = std::make_unique<Material>(
-        getDefaultTexture(),
-        defaultNormalTexture.get(),
-        defaultMetallicRoughnessTexture.get()
-    );
-
-    fallbackMaterial->setName("Default fallback material");
-    fallbackMaterial->setOcclusionTexture(defaultAoTexture.get(), false);
-    fallbackMaterial->setOcclusionStrength(0.0f);
-    fallbackMaterial->setEmissiveTexture(defaultEmissiveTexture.get(), false);
-    fallbackMaterial->setEmissiveFactor(glm::vec3(0.0f));
-
-    materials.push_back(std::move(fallbackMaterial));
-
-    for (const auto& importedMaterial : imported.materials)
-    {
-        Texture2D* assignedBaseColorTexture = &getDefaultTexture();
-
-        if (importedMaterial.baseColorImageIndex >= 0 &&
-            importedMaterial.baseColorImageIndex < static_cast<int>(textureMaps.baseColor.size()))
-        {
-            const int textureIndex =
-                textureMaps.baseColor[importedMaterial.baseColorImageIndex];
-
-            if (textureIndex >= 0 &&
-                textureIndex < static_cast<int>(textures.size()))
-            {
-                assignedBaseColorTexture = textures[textureIndex].get();
-            }
-        }
-
-        auto material = std::make_unique<Material>(
-            *assignedBaseColorTexture,
-            defaultNormalTexture.get(),
-            defaultMetallicRoughnessTexture.get()
-        );
-
-        material->setBaseColorFactor(importedMaterial.baseColorFactor);
-        material->setName(importedMaterial.name);
-        material->setDoubleSided(importedMaterial.doubleSided);
-        material->setMetallicFactor(importedMaterial.metallicFactor);
-        material->setRoughnessFactor(importedMaterial.roughnessFactor);
-        material->setNormalScale(importedMaterial.normalScale);
-        material->setAlphaMode(importedMaterial.alphaMode);
-        material->setAlphaCutoff(importedMaterial.alphaCutoff);
-
-        Texture2D* assignedNormalTexture = defaultNormalTexture.get();
-        bool hasRealNormalTexture = false;
-
-        if (importedMaterial.normalImageIndex >= 0 &&
-            importedMaterial.normalImageIndex < static_cast<int>(textureMaps.normal.size()))
-        {
-            const int textureIndex =
-                textureMaps.normal[importedMaterial.normalImageIndex];
-
-            if (textureIndex >= 0 &&
-                textureIndex < static_cast<int>(normalTextures.size()))
-            {
-                assignedNormalTexture = normalTextures[textureIndex].get();
-                hasRealNormalTexture = true;
-            }
-        }
-
-        Texture2D* assignedMRTexture = defaultMetallicRoughnessTexture.get();
-        bool hasRealMRTexture = false;
-
-        if (importedMaterial.metallicRoughnessImageIndex >= 0 &&
-            importedMaterial.metallicRoughnessImageIndex <
-            static_cast<int>(textureMaps.metallicRoughness.size()))
-        {
-            const int textureIndex =
-                textureMaps.metallicRoughness[importedMaterial.metallicRoughnessImageIndex];
-
-            if (textureIndex >= 0 &&
-                textureIndex < static_cast<int>(metallicRoughnessTextures.size()))
-            {
-                assignedMRTexture = metallicRoughnessTextures[textureIndex].get();
-                hasRealMRTexture = true;
-            }
-        }
-
-        Texture2D* assignedAOTexture = defaultAoTexture.get();
-        bool hasRealAOTexture = false;
-
-        if (importedMaterial.occlusionImageIndex >= 0 &&
-            importedMaterial.occlusionImageIndex <
-            static_cast<int>(textureMaps.occlusion.size()))
-        {
-            const int textureIndex =
-                textureMaps.occlusion[importedMaterial.occlusionImageIndex];
-
-            if (textureIndex >= 0 &&
-                textureIndex < static_cast<int>(aoTextures.size()))
-            {
-                assignedAOTexture = aoTextures[textureIndex].get();
-                hasRealAOTexture = true;
-            }
-        }
-
-        Texture2D* assignedEmissiveTexture = defaultEmissiveTexture.get();
-        bool hasRealEmissiveTexture = false;
-
-        if (importedMaterial.emissiveImageIndex >= 0 &&
-            importedMaterial.emissiveImageIndex <
-            static_cast<int>(textureMaps.emissive.size()))
-        {
-            const int textureIndex =
-                textureMaps.emissive[importedMaterial.emissiveImageIndex];
-
-            if (textureIndex >= 0 &&
-                textureIndex < static_cast<int>(emissiveTextures.size()))
-            {
-                assignedEmissiveTexture = emissiveTextures[textureIndex].get();
-                hasRealEmissiveTexture = true;
-            }
-        }
-
-        material->setNormalTexture(assignedNormalTexture, hasRealNormalTexture);
-        material->setMetallicRoughnessTexture(assignedMRTexture, hasRealMRTexture);
-        material->setOcclusionTexture(assignedAOTexture, hasRealAOTexture);
-        material->setOcclusionStrength(importedMaterial.occlusionStrength);
-        material->setEmissiveTexture(assignedEmissiveTexture, hasRealEmissiveTexture);
-        material->setEmissiveFactor(importedMaterial.emissiveFactor);
-
-        materials.push_back(std::move(material));
-    }
-}
-
-void Renderer::createRenderablesFromGltf(const GltfSceneData& imported)
-{
-    if (imported.renderables.empty())
-    {
-        throw std::runtime_error("glTF import produced no renderables");
-    }
-
-    glm::vec3 minBounds(FLT_MAX);
-    glm::vec3 maxBounds(-FLT_MAX);
-
-    // Compute bounds
-    for (const auto& importedRenderable : imported.renderables)
-    {
-        const glm::mat4 worldMatrix =
-            importedRenderable.transform.toMatrix();
-
-        for (const auto& vertex : importedRenderable.mesh.vertices)
-        {
-            glm::vec3 worldPos =
-                glm::vec3(worldMatrix * glm::vec4(vertex.pos, 1.0f));
-
-            minBounds = glm::min(minBounds, worldPos);
-            maxBounds = glm::max(maxBounds, worldPos);
-        }
-    }
-
-    glm::vec3 modelCenter = (minBounds + maxBounds) * 0.5f;
-    glm::mat4 modelRootMatrix =
-        glm::translate(glm::mat4(1.0f), -modelCenter);
-
-    camera.frameBounds(minBounds, maxBounds);
-
-    // Create renderables
-    for (size_t i = 0; i < imported.renderables.size(); ++i)
-    {
-        const auto& importedRenderable = imported.renderables[i];
-
-        gpuMeshes.push_back(std::make_unique<GpuMesh>(
-            vkContext,
-            bufferUtils,
-            importedRenderable.mesh.vertices,
-            importedRenderable.mesh.indices
-        ));
-
-        const int importedMaterialIndex =
-            importedRenderable.materialIndex;
-
-        const int rendererMaterialIndex =
-            importedMaterialIndex >= 0 &&
-            importedMaterialIndex + 1 < static_cast<int>(materials.size())
-            ? importedMaterialIndex + 1
-            : 0;
-
-        Material& assignedMaterial =
-            *materials[rendererMaterialIndex];
-
-        Renderable& renderable = scene.addRenderable(
-            *gpuMeshes.back(),
-            assignedMaterial,
-            "glTF " + std::to_string(i)
-        );
-
-        renderable.setMaterialIndex(
-            static_cast<uint32_t>(rendererMaterialIndex));
-
-        glm::mat4 originalMatrix =
-            importedRenderable.transform.toMatrix();
-
-        glm::mat4 finalMatrix =
-            modelRootMatrix * originalMatrix;
-
-        Transform& t = renderable.getTransform();
-        t.useMatrixOverride = true;
-        t.matrixOverride = finalMatrix;
-    }
-}
-
 
 
 

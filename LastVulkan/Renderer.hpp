@@ -44,6 +44,7 @@ import vulkan_hpp;
 #include "RenderTargets.hpp"
 #include "FrameResources.hpp"
 #include "ScenePipelines.hpp"
+#include "GltfSceneLoader.hpp"
 
 
 
@@ -53,6 +54,7 @@ class Renderer
 {
 public:
     Renderer(Window& window, VulkanContext& vkContext);
+
     ~Renderer();
 
     Renderer(const Renderer&) = delete;
@@ -62,25 +64,16 @@ public:
 
     void cleanupSwapChain();
     void recreateSwapChain();
-
-    
     
     void createDescriptorSetLayout();
     
-    
     void drawFrame();
 
-
-    
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
 
     void createMaterialDescriptorSets();
-    
-
- 
-
     void initImGui();
     void shutdownImGui();
     void beginImGuiFrame();
@@ -88,15 +81,9 @@ public:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
-       
     void focusSelectedRenderable();
-
     void resetDefaultSceneLayout();
-    
-    
     void cleanupDescriptorResources();
-    
-    
     void updateCameraControls();
 
     void drawPostProcessToSwapchain(
@@ -115,37 +102,29 @@ public:
 
 private:
     Window&             window;
-    VulkanContext&      vkContext;
+    VulkanContext&      vkContext;  
     
     BufferUtils         bufferUtils;
     ImageUtils          imageUtils;
+    GltfSceneLoader     gltfSceneLoader;
     SwapchainManager    swapchain;
     RenderTargets       renderTargets;
     FrameResources      frameResources;
     ScenePipelines      scenePipelines;
 
-    struct GltfTextureUploadMaps
-    {
-        std::vector<int> baseColor;
-        std::vector<int> normal;
-        std::vector<int> metallicRoughness;
-        std::vector<int> occlusion;
-        std::vector<int> emissive;
-    };
+    
 
     void clearSceneResources();
     void createDefaultMaterialTextures();
     void setupCameraDefaults();
 
-    GltfSceneData loadCurrentGltfScene();
+    
 
-    GltfTextureUploadMaps uploadGltfTextures(const GltfSceneData& imported);
+    
 
-    void createMaterialsFromGltf(
-        const GltfSceneData& imported,
-        const GltfTextureUploadMaps& textureMaps);
+   
 
-    void createRenderablesFromGltf(const GltfSceneData& imported);
+    
         
 
     vk::DescriptorSetLayout externalBloomBlurDescriptorSetLayout{};
