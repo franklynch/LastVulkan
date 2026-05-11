@@ -48,6 +48,7 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , environmentSystem(vkContext, bufferUtils, imageUtils)
     , sceneRenderer(vkContext)
 	, descriptorManager(vkContext)
+	, materialSystem(vkContext, bufferUtils, imageUtils)
     
 {
     init();
@@ -159,7 +160,10 @@ void Renderer::init()
         descriptorManager.iblLayout());
 
     clearSceneResources();
-    createDefaultMaterialTextures();
+    
+    materialSystem.clear();
+    materialSystem.createDefaultTextures();
+
     setupCameraDefaults();
 
     currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
@@ -168,24 +172,24 @@ void Renderer::init()
         currentModelPath,
         scene,
         gpuMeshes,
-        textures,
-        normalTextures,
-        metallicRoughnessTextures,
-        aoTextures,
-        emissiveTextures,
-        materials,
-        getDefaultTexture(),
-        *defaultNormalTexture,
-        *defaultMetallicRoughnessTexture,
-        *defaultAoTexture,
-        *defaultEmissiveTexture,
+        materialSystem.baseColorTextures(),
+        materialSystem.normalTextures(),
+        materialSystem.metallicRoughnessTextures(),
+        materialSystem.aoTextures(),
+        materialSystem.emissiveTextures(),
+        materialSystem.materials(),
+        materialSystem.defaultTexture(),
+        materialSystem.defaultNormalTexture(),
+        materialSystem.defaultMetallicRoughnessTexture(),
+        materialSystem.defaultAoTexture(),
+        materialSystem.defaultEmissiveTexture(),
         camera);
 
     createUniformBuffers();
         
     descriptorManager.createDescriptorPool(
         MAX_FRAMES_IN_FLIGHT,
-        static_cast<uint32_t>(materials.size()));
+        static_cast<uint32_t>(materialSystem.materials().size()));
 
     descriptorManager.allocateFrameDescriptorSets(
         MAX_FRAMES_IN_FLIGHT);
@@ -198,7 +202,8 @@ void Renderer::init()
         MAX_FRAMES_IN_FLIGHT);
 
 
-    descriptorManager.createMaterialDescriptorSets(materials);
+    descriptorManager.createMaterialDescriptorSets(
+        materialSystem.materials());
 
     
    
@@ -331,59 +336,11 @@ void Renderer::recreateSwapChain()
 
 
 
-void Renderer::createDefaultMaterialTextures()
-{
-    const unsigned char fallbackWhitePixel[4] = { 255, 255, 255, 255 };
-    const unsigned char flatNormalPixels[4] = { 128, 128, 255, 255 };
-    const unsigned char defaultMRPixels[4] = { 255, 255, 255, 255 };
-    const unsigned char fallbackAoPixel[4] = { 255, 255, 255, 255 };
-    const unsigned char fallbackEmissivePixel[4] = { 0, 0, 0, 255 };
 
-    textures.push_back(std::make_unique<Texture2D>(
-        vkContext, bufferUtils, imageUtils,
-        fallbackWhitePixel, 1, 1, 4,
-        "<fallback-white-base-color>",
-        vk::Format::eR8G8B8A8Srgb));
-
-    defaultNormalTexture = std::make_unique<Texture2D>(
-        vkContext, bufferUtils, imageUtils,
-        flatNormalPixels, 1, 1, 4,
-        "Default Flat Normal",
-        vk::Format::eR8G8B8A8Unorm);
-
-    defaultMetallicRoughnessTexture = std::make_unique<Texture2D>(
-        vkContext, bufferUtils, imageUtils,
-        defaultMRPixels, 1, 1, 4,
-        "Default MetallicRoughness",
-        vk::Format::eR8G8B8A8Unorm);
-
-    defaultAoTexture = std::make_unique<Texture2D>(
-        vkContext, bufferUtils, imageUtils,
-        fallbackAoPixel, 1, 1, 4,
-        "<fallback-ao>",
-        vk::Format::eR8G8B8A8Unorm);
-
-    defaultEmissiveTexture = std::make_unique<Texture2D>(
-        vkContext, bufferUtils, imageUtils,
-        fallbackEmissivePixel, 1, 1, 4,
-        "<fallback-emissive>",
-        vk::Format::eR8G8B8A8Srgb);
-}
 
 void Renderer::clearSceneResources()
 {
-    textures.clear();
-    normalTextures.clear();
-    metallicRoughnessTextures.clear();
-    aoTextures.clear();
-    emissiveTextures.clear();
-
-    defaultNormalTexture.reset();
-    defaultMetallicRoughnessTexture.reset();
-    defaultAoTexture.reset();
-    defaultEmissiveTexture.reset();
-
-    materials.clear();
+   
     scene.clear();
     gpuMeshes.clear();
 }
@@ -398,25 +355,7 @@ void Renderer::setupCameraDefaults()
 
 
 
-Texture2D& Renderer::getDefaultTexture()
-{
-    if (textures.empty() || !textures[0])
-    {
-        throw std::runtime_error("default texture is not available");
-    }
 
-    return *textures[0];
-}
-
-Material& Renderer::getDefaultMaterial()
-{
-    if (materials.empty() || !materials[0])
-    {
-        throw std::runtime_error("default material is not available");
-    }
-
-    return *materials[0];
-}
 
 
 void Renderer::createUniformBuffers()
@@ -1233,19 +1172,22 @@ void Renderer::focusSelectedRenderable()
 int Renderer::getMaterialIndex(const Material& material) const
 {
     auto it = std::find_if(
-        materials.begin(),
-        materials.end(),
+        materialSystem.materials().begin(),
+        materialSystem.materials().end(),
         [&](const std::unique_ptr<Material>& candidate)
         {
             return candidate.get() == &material;
         });
 
-    if (it == materials.end())
+    if (it == materialSystem.materials().end())
     {
         return -1;
     }
 
-    return static_cast<int>(std::distance(materials.begin(), it));
+    return static_cast<int>(
+        std::distance(
+            materialSystem.materials().begin(),
+            it));
 }
 
 bool Renderer::isWireframeSupported() const
@@ -1698,11 +1640,11 @@ void Renderer::buildImGui()
             ambientColor);
 
 
-        EditorPanels::drawRendererPanel(
+     /*   EditorPanels::drawRendererPanel(
             vkContext,
             swapchain.extent(),
-            swapchain.images().size(),
-            textures.empty() ? nullptr : &getDefaultTexture(),
+            swapchain.imageCount(),
+            materialSystem.materials().empty() ? nullptr : &materialSystem.defaultMaterial(),
             vkContext.getMsaaSamples(),
             gpuMeshes.size(),
             totalVertexCount,
@@ -1710,6 +1652,9 @@ void Renderer::buildImGui()
             frameTimeMs,
             fps,
             scene);
+
+            */
+
 
         EditorPanels::drawAnimationPanel(
             animateModel,

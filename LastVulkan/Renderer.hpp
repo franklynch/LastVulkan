@@ -40,6 +40,7 @@ import vulkan_hpp;
 #include "EnvironmentSystem.hpp"  
 #include "SceneRenderer.hpp"
 #include "DescriptorManager.hpp"
+#include "MaterialSystem.hpp"
 
 
 
@@ -103,8 +104,7 @@ public:
 
     void recordCommandBuffer(uint32_t imageIndex);
 
-    Texture2D& getDefaultTexture();
-    Material& getDefaultMaterial();
+  
 
 
 
@@ -122,6 +122,7 @@ private:
     EnvironmentSystem       environmentSystem;
     SceneRenderer           sceneRenderer;
     DescriptorManager       descriptorManager;
+    MaterialSystem          materialSystem;
     
 
     EditorUiState           uiState;
@@ -131,7 +132,7 @@ private:
 
 
     void clearSceneResources();
-    void createDefaultMaterialTextures();
+    
     void setupCameraDefaults();
 
     vk::DescriptorSetLayout externalBloomBlurDescriptorSetLayout{};
@@ -155,24 +156,6 @@ private:
     bool isWireframeSupported() const;
     glm::vec3 computeSceneCenter() const;
 
-
-    std::vector<std::unique_ptr<Texture2D>>     normalTextures;
-    std::unique_ptr<Texture2D>                  defaultNormalTexture;
-
-    std::vector<std::unique_ptr<Texture2D>>     metallicRoughnessTextures;
-    std::unique_ptr<Texture2D>                  defaultMetallicRoughnessTexture;
-
-    
-    std::vector<std::unique_ptr<Texture2D>>     aoTextures;
-    std::unique_ptr<Texture2D>                  defaultAoTexture;
-
-    std::vector<std::unique_ptr<Texture2D>>     emissiveTextures;
-    std::unique_ptr<Texture2D>                  defaultEmissiveTexture;
-    
-    
-
-    
-
     std::unique_ptr<PostProcessRenderer> postProcessRenderer;
 
 
@@ -180,8 +163,8 @@ private:
 
 
 
-    std::vector<std::unique_ptr<Texture2D>> textures;
-    std::vector<std::unique_ptr<Material>> materials;
+    
+    
 
 
     glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;

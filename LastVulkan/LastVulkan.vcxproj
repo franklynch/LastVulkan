@@ -100,6 +100,7 @@
     <ClCompile Include="ImageUtils.cpp" />
     <ClCompile Include="IrradianceRenderer.cpp" />
     <ClCompile Include="Material.cpp" />
+    <ClCompile Include="MaterialSystem.cpp" />
     <ClCompile Include="PostProcessRenderer.cpp" />
     <ClCompile Include="PrefilterRenderer.cpp" />
     <ClCompile Include="RenderTargets.cpp" />
@@ -141,6 +142,7 @@
     <ClInclude Include="ImageUtils.hpp" />
     <ClInclude Include="IrradianceRenderer.hpp" />
     <ClInclude Include="Material.hpp" />
+    <ClInclude Include="MaterialSystem.hpp" />
     <ClInclude Include="MeshData.hpp" />
     <ClInclude Include="PrefilterRenderer.hpp" />
     <ClInclude Include="Renderable.hpp" />
