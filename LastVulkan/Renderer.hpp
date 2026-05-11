@@ -82,8 +82,8 @@ public:
     void createUniformBuffers();
     
     
-    void createDescriptorSets();
-    void createMaterialDescriptorSets();
+    
+    
     void initImGui();
     void shutdownImGui();
     void beginImGuiFrame();
@@ -194,7 +194,7 @@ private:
 
 
     
-    std::vector<vk::raii::DescriptorSet> materialDescriptorSets;
+    
 
 
     std::vector<vk::raii::Buffer> uniformBuffers;

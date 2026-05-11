@@ -192,8 +192,13 @@ void Renderer::init()
 
     descriptorManager.allocateIBLDescriptorSet();
 
-    createDescriptorSets();          // writes frame descriptors only
-    createMaterialDescriptorSets();  // still Renderer-owned
+   
+    descriptorManager.updateFrameDescriptorSets(
+        uniformBuffers,
+        MAX_FRAMES_IN_FLIGHT);
+
+
+    descriptorManager.createMaterialDescriptorSets(materials);
 
     
    
@@ -322,39 +327,7 @@ void Renderer::recreateSwapChain()
     
 }
 
-void Renderer::createDescriptorSets()
-{
-    auto& device = vkContext.getDevice();
 
-    auto& frameSets =
-        descriptorManager.frameDescriptorSets();
-
-    if (frameSets.size() != MAX_FRAMES_IN_FLIGHT)
-    {
-        throw std::runtime_error(
-            "createDescriptorSets: frame descriptor sets not allocated");
-    }
-
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
-    {
-        vk::DescriptorBufferInfo bufferInfo{};
-        bufferInfo
-            .setBuffer(*uniformBuffers[i])
-            .setOffset(0)
-            .setRange(sizeof(UniformBufferObject));
-
-        vk::WriteDescriptorSet descriptorWrite{};
-        descriptorWrite
-            .setDstSet(*frameSets[i])
-            .setDstBinding(0)
-            .setDstArrayElement(0)
-            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-            .setDescriptorCount(1)
-            .setBufferInfo(bufferInfo);
-
-        device.updateDescriptorSets(descriptorWrite, nullptr);
-    }
-}
 
 
 
@@ -560,56 +533,7 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
 
 };
 
-void Renderer::createMaterialDescriptorSets()
-{
-    auto& device = vkContext.getDevice();
 
-    if (materials.empty())
-    {
-        materialDescriptorSets.clear();
-        return;
-    }
-
-    std::vector<vk::DescriptorSetLayout> layouts(
-        materials.size(),
-        descriptorManager.materialLayout()
-    );
-
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo
-        .setDescriptorPool(*descriptorManager.descriptorPool())
-        .setSetLayouts(layouts);
-
-    materialDescriptorSets = vk::raii::DescriptorSets(device, allocInfo);
-
-    for (size_t i = 0; i < materials.size(); ++i)
-    {
-        MaterialImageWrite baseColorWrite =
-            materials[i]->makeImageWrite(*materialDescriptorSets[i], 0);
-
-        MaterialImageWrite normalWrite =
-            materials[i]->makeNormalImageWrite(*materialDescriptorSets[i], 1);
-
-        MaterialImageWrite metallicRoughnessWrite =
-            materials[i]->makeMetallicRoughnessImageWrite(*materialDescriptorSets[i], 2);
-
-        MaterialImageWrite aoWrite =
-            materials[i]->makeOcclusionImageWrite(*materialDescriptorSets[i], 3);
-
-        MaterialImageWrite emissiveWrite =
-            materials[i]->makeEmissiveImageWrite(*materialDescriptorSets[i], 4);
-
-        std::array<vk::WriteDescriptorSet, 5> descriptorWrites = {
-            baseColorWrite.write,
-            normalWrite.write,
-            metallicRoughnessWrite.write,
-            aoWrite.write,
-            emissiveWrite.write
-        };
-
-        device.updateDescriptorSets(descriptorWrites, nullptr);
-    }
-}
 
 void Renderer::drawFrame()
 {
@@ -887,7 +811,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         *descriptorManager.iblDescriptorSet();
 
     renderContext.materialDescriptorSets =
-        &materialDescriptorSets;
+        &descriptorManager.materialDescriptorSets();
 
     renderContext.wireframeEnabled =
         uiState.wireframeRequested;
@@ -1209,7 +1133,7 @@ void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePa
 void Renderer::cleanupDescriptorResources()
 {
     
-    materialDescriptorSets.clear();
+    
     
 
     

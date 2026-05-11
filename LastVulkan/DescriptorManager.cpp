@@ -1,4 +1,5 @@
 #include "DescriptorManager.hpp"
+#include "RendererTypes.hpp"
 
 DescriptorManager::DescriptorManager(VulkanContext& vkContext)
     : vkContext(vkContext)
@@ -258,6 +259,97 @@ void DescriptorManager::createIBLDescriptorSet()
         vkContext.getDevice().allocateDescriptorSets(allocInfo);
 
     m_iblDescriptorSet = std::move(sets.front());
+}
+
+void DescriptorManager::updateFrameDescriptorSets(
+    const std::vector<vk::raii::Buffer>& uniformBuffers,
+    uint32_t maxFramesInFlight)
+{
+    auto& device = vkContext.getDevice();
+
+    if (uniformBuffers.size() < maxFramesInFlight)
+    {
+        throw std::runtime_error(
+            "updateFrameDescriptorSets: not enough uniform buffers");
+    }
+
+    if (m_frameDescriptorSets.size() < maxFramesInFlight)
+    {
+        throw std::runtime_error(
+            "updateFrameDescriptorSets: frame descriptor sets not allocated");
+    }
+
+    for (uint32_t i = 0; i < maxFramesInFlight; ++i)
+    {
+        vk::DescriptorBufferInfo bufferInfo{};
+        bufferInfo
+            .setBuffer(*uniformBuffers[i])
+            .setOffset(0)
+            .setRange(sizeof(UniformBufferObject));
+
+        vk::WriteDescriptorSet write{};
+        write
+            .setDstSet(*m_frameDescriptorSets[i])
+            .setDstBinding(0)
+            .setDstArrayElement(0)
+            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+            .setDescriptorCount(1)
+            .setBufferInfo(bufferInfo);
+
+        device.updateDescriptorSets(write, nullptr);
+    }
+}
+
+void DescriptorManager::createMaterialDescriptorSets(const std::vector<std::unique_ptr<Material>>& materials)
+{
+    auto& device = vkContext.getDevice();
+
+    m_materialDescriptorSets.clear();
+
+    if (materials.empty())
+    {
+        return;
+    }
+
+    std::vector<vk::DescriptorSetLayout> layouts(
+        materials.size(),
+        materialLayout()
+    );
+
+    vk::DescriptorSetAllocateInfo allocInfo{};
+    allocInfo
+        .setDescriptorPool(*m_descriptorPool)
+        .setSetLayouts(layouts);
+
+    m_materialDescriptorSets = vk::raii::DescriptorSets(device, allocInfo);
+
+    for (size_t i = 0; i < materials.size(); ++i)
+    {
+        MaterialImageWrite baseColorWrite =
+            materials[i]->makeImageWrite(*m_materialDescriptorSets[i], 0);
+
+        MaterialImageWrite normalWrite =
+            materials[i]->makeNormalImageWrite(*m_materialDescriptorSets[i], 1);
+
+        MaterialImageWrite metallicRoughnessWrite =
+            materials[i]->makeMetallicRoughnessImageWrite(*m_materialDescriptorSets[i], 2);
+
+        MaterialImageWrite aoWrite =
+            materials[i]->makeOcclusionImageWrite(*m_materialDescriptorSets[i], 3);
+
+        MaterialImageWrite emissiveWrite =
+            materials[i]->makeEmissiveImageWrite(*m_materialDescriptorSets[i], 4);
+
+        std::array<vk::WriteDescriptorSet, 5> descriptorWrites = {
+            baseColorWrite.write,
+            normalWrite.write,
+            metallicRoughnessWrite.write,
+            aoWrite.write,
+            emissiveWrite.write
+        };
+
+        device.updateDescriptorSets(descriptorWrites, nullptr);
+    }
 }
 
 

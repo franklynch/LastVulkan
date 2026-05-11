@@ -9,6 +9,7 @@ import vulkan_hpp;
 #endif
 
 #include "VulkanContext.hpp"
+#include "Material.hpp"
 
 class DescriptorManager
 {
@@ -30,6 +31,13 @@ public:
     void allocateFrameDescriptorSets(uint32_t maxFramesInFlight);
     void allocateIBLDescriptorSet();
 
+    void updateFrameDescriptorSets(
+        const std::vector<vk::raii::Buffer>& uniformBuffers,
+        uint32_t maxFramesInFlight);
+
+    void createMaterialDescriptorSets(
+        const std::vector<std::unique_ptr<Material>>& materials);
+
     vk::DescriptorSetLayout frameLayout() const { return *m_frameDescriptorSetLayout; }
     vk::DescriptorSetLayout materialLayout() const { return *m_materialDescriptorSetLayout; }
     vk::DescriptorSetLayout iblLayout() const { return *m_iblDescriptorSetLayout; }
@@ -37,6 +45,12 @@ public:
     const vk::raii::DescriptorSetLayout& frameLayoutRaii() const { return m_frameDescriptorSetLayout; }
     const vk::raii::DescriptorSetLayout& materialLayoutRaii() const { return m_materialDescriptorSetLayout; }
     const vk::raii::DescriptorSetLayout& iblLayoutRaii() const { return m_iblDescriptorSetLayout; }
+    const std::vector<vk::raii::DescriptorSet>& materialDescriptorSets() const { return m_materialDescriptorSets; }
+
+    std::vector<vk::raii::DescriptorSet>& materialDescriptorSets()
+    {
+        return m_materialDescriptorSets;
+    }
 
     const vk::raii::DescriptorPool& descriptorPool() const
     {
@@ -67,4 +81,6 @@ private:
     vk::raii::DescriptorPool m_descriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> m_frameDescriptorSets;
     vk::raii::DescriptorSet m_iblDescriptorSet = nullptr;
+
+    std::vector<vk::raii::DescriptorSet> m_materialDescriptorSets;
 };
