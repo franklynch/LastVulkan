@@ -47,6 +47,7 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , scenePipelines(vkContext)
     , environmentSystem(vkContext, bufferUtils, imageUtils)
     , sceneRenderer(vkContext)
+	, descriptorManager(vkContext)
     
 {
     init();
@@ -136,32 +137,32 @@ void Renderer::init()
         MAX_FRAMES_IN_FLIGHT,
         swapchain.imageCount());
 
+    createUniformBuffers();
 
-    createDescriptorSetLayout();
+
+    descriptorManager.createLayouts();
 
     scenePipelines.create(
         swapchain.extent(),
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
-        *frameDescriptorSetLayout,
-        *materialDescriptorSetLayout,
-        *iblDescriptorSetLayout,
+        descriptorManager.frameLayout(),
+        descriptorManager.materialLayout(),
+        descriptorManager.iblLayout(),
         isWireframeSupported());
 
     scenePipelines.createSkybox(
         swapchain.extent(),
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
-        *frameDescriptorSetLayout,
-        *iblDescriptorSetLayout);
+        descriptorManager.frameLayout(),
+        descriptorManager.iblLayout());
 
     clearSceneResources();
     createDefaultMaterialTextures();
     setupCameraDefaults();
-    
-   
+
     currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
-    
 
     gltfSceneLoader.load(
         currentModelPath,
@@ -180,7 +181,21 @@ void Renderer::init()
         *defaultEmissiveTexture,
         camera);
 
-  
+    createUniformBuffers();
+        
+    descriptorManager.createDescriptorPool(
+        MAX_FRAMES_IN_FLIGHT,
+        static_cast<uint32_t>(materials.size()));
+
+    descriptorManager.allocateFrameDescriptorSets(
+        MAX_FRAMES_IN_FLIGHT);
+
+    descriptorManager.allocateIBLDescriptorSet();
+
+    createDescriptorSets();          // writes frame descriptors only
+    createMaterialDescriptorSets();  // still Renderer-owned
+
+    
    
     resetEnvironmentSettings();
 
@@ -195,13 +210,14 @@ void Renderer::init()
 
    
 
-    createUniformBuffers();
+    
 
     
 
-    createDescriptorPool();
-    createDescriptorSets();
-    createMaterialDescriptorSets();
+   
+    
+    
+    
 
     
 
@@ -234,7 +250,7 @@ void Renderer::init()
 
 
     environmentSystem.updateIBLDescriptorSet(
-        iblDescriptorSet,
+        descriptorManager.iblDescriptorSet(),
         *environmentCubeSampler,
         *environmentCubeView);
 
@@ -291,145 +307,55 @@ void Renderer::recreateSwapChain()
         swapchain.extent(),
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
-        *frameDescriptorSetLayout,
-        *materialDescriptorSetLayout,
-        *iblDescriptorSetLayout,
+        descriptorManager.frameLayout(),
+        descriptorManager.materialLayout(),
+        descriptorManager.iblLayout(),
         isWireframeSupported());
 
     scenePipelines.createSkybox(
         swapchain.extent(),
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
-        *frameDescriptorSetLayout,
-        *iblDescriptorSetLayout);
+        descriptorManager.frameLayout(),
+        descriptorManager.iblLayout());
 
     
 }
 
-void Renderer::createDescriptorSetLayout()
+void Renderer::createDescriptorSets()
 {
     auto& device = vkContext.getDevice();
 
-    // Set 0: per-frame UBO
+    auto& frameSets =
+        descriptorManager.frameDescriptorSets();
+
+    if (frameSets.size() != MAX_FRAMES_IN_FLIGHT)
     {
-        vk::DescriptorSetLayoutBinding uboBinding{};
-        uboBinding
-            .setBinding(0)
+        throw std::runtime_error(
+            "createDescriptorSets: frame descriptor sets not allocated");
+    }
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
+    {
+        vk::DescriptorBufferInfo bufferInfo{};
+        bufferInfo
+            .setBuffer(*uniformBuffers[i])
+            .setOffset(0)
+            .setRange(sizeof(UniformBufferObject));
+
+        vk::WriteDescriptorSet descriptorWrite{};
+        descriptorWrite
+            .setDstSet(*frameSets[i])
+            .setDstBinding(0)
+            .setDstArrayElement(0)
             .setDescriptorType(vk::DescriptorType::eUniformBuffer)
             .setDescriptorCount(1)
-            .setStageFlags(
-                vk::ShaderStageFlagBits::eVertex |
-                vk::ShaderStageFlagBits::eFragment);
+            .setBufferInfo(bufferInfo);
 
-        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.setBindings(uboBinding);
-
-        frameDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
-    }
-
-    // Set 1: per-material textures
-    {
-        vk::DescriptorSetLayoutBinding baseColorBinding{};
-        baseColorBinding
-            .setBinding(0)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding normalBinding{};
-        normalBinding
-            .setBinding(1)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding metallicRoughnessBinding{};
-        metallicRoughnessBinding
-            .setBinding(2)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding aoBinding{};
-        aoBinding
-            .setBinding(3)
-            .setDescriptorCount(1)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding emissiveBinding{};
-        emissiveBinding
-            .setBinding(4)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        std::array<vk::DescriptorSetLayoutBinding, 5> bindings = {
-            baseColorBinding,
-            normalBinding,
-            metallicRoughnessBinding,
-            aoBinding,
-            emissiveBinding
-        };
-
-
-
-        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.setBindings(bindings);
-
-        materialDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
-    }
-
-    // Set 2: IBL textures
-    {
-        vk::DescriptorSetLayoutBinding irradianceBinding{};
-        irradianceBinding
-            .setBinding(0)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding prefilteredBinding{};
-        prefilteredBinding
-            .setBinding(1)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding brdfLutBinding{};
-        brdfLutBinding
-            .setBinding(2)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        vk::DescriptorSetLayoutBinding environmentBinding{};
-        environmentBinding
-            .setBinding(3)
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDescriptorCount(1)
-            .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-        std::array<vk::DescriptorSetLayoutBinding, 4> bindings = {
-            irradianceBinding,
-            prefilteredBinding,
-            brdfLutBinding,
-            environmentBinding
-        };
-
-        vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-        layoutInfo.setBindings(bindings);
-
-        iblDescriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
-
-        
-        
-
-        
-
-
+        device.updateDescriptorSets(descriptorWrite, nullptr);
     }
 }
+
 
 
 void Renderer::createDefaultMaterialTextures()
@@ -537,89 +463,6 @@ void Renderer::createUniformBuffers()
         uniformBuffersMapped.emplace_back(uniformBuffersMemory[i].mapMemory(0, bufferSize));
     }
 }
-
-void Renderer::createDescriptorPool()
-{
-    cleanupDescriptorResources();
-
-    uint32_t materialCount = static_cast<uint32_t>(materials.size());
-
-    std::array poolSizes{
-        vk::DescriptorPoolSize(
-            vk::DescriptorType::eUniformBuffer,
-            MAX_FRAMES_IN_FLIGHT),
-
-        vk::DescriptorPoolSize(
-            vk::DescriptorType::eCombinedImageSampler,
-            materialCount * 5 + 4) // 5 bindings per material + 4 for IBL
-    };
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(MAX_FRAMES_IN_FLIGHT + materialCount + 1) // +1 for IBL set
-        .setPoolSizes(poolSizes);
-
-    descriptorPool = vk::raii::DescriptorPool(vkContext.getDevice(), poolInfo);
-}
-
-void Renderer::createDescriptorSets()
-{
-    auto& device = vkContext.getDevice();
-
-    // =========================
-    // Set 0  Frame UBO sets
-    // =========================
-
-    std::vector<vk::DescriptorSetLayout> layouts(
-        MAX_FRAMES_IN_FLIGHT,
-        *frameDescriptorSetLayout
-    );
-
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo
-        .setDescriptorPool(*descriptorPool)
-        .setSetLayouts(layouts);
-
-    frameDescriptorSets = vk::raii::DescriptorSets(device, allocInfo);
-
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-    {
-        vk::DescriptorBufferInfo bufferInfo{};
-        bufferInfo
-            .setBuffer(*uniformBuffers[i])
-            .setOffset(0)
-            .setRange(sizeof(UniformBufferObject));
-
-        vk::WriteDescriptorSet uboWrite{};
-        uboWrite
-            .setDstSet(*frameDescriptorSets[i])
-            .setDstBinding(0)
-            .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-            .setDescriptorCount(1)
-            .setBufferInfo(bufferInfo);
-
-        device.updateDescriptorSets(uboWrite, nullptr);
-    }
-
-    // =========================
-    // Set 2  IBL descriptor set
-    // =========================
-
-    vk::DescriptorSetAllocateInfo iblAllocInfo{};
-    iblAllocInfo
-        .setDescriptorPool(*descriptorPool)
-        .setSetLayouts(*iblDescriptorSetLayout);
-
-    vk::raii::DescriptorSets iblSets(device, iblAllocInfo);
-
-    iblDescriptorSet = std::move(iblSets.front());
-
-    // NOTE:
-    // We do NOT update the descriptors here yet unless
-    // fallback textures already exist.
-}
-
 
 
 void Renderer::updateUniformBuffer(uint32_t currentFrame)
@@ -729,12 +572,12 @@ void Renderer::createMaterialDescriptorSets()
 
     std::vector<vk::DescriptorSetLayout> layouts(
         materials.size(),
-        *materialDescriptorSetLayout
+        descriptorManager.materialLayout()
     );
 
     vk::DescriptorSetAllocateInfo allocInfo{};
     allocInfo
-        .setDescriptorPool(*descriptorPool)
+        .setDescriptorPool(*descriptorManager.descriptorPool())
         .setSetLayouts(layouts);
 
     materialDescriptorSets = vk::raii::DescriptorSets(device, allocInfo);
@@ -767,10 +610,6 @@ void Renderer::createMaterialDescriptorSets()
         device.updateDescriptorSets(descriptorWrites, nullptr);
     }
 }
-
-
-
-
 
 void Renderer::drawFrame()
 {
@@ -1042,10 +881,10 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         scenePipelines.wireframe(true);
 
     renderContext.frameDescriptorSet =
-        *frameDescriptorSets[frameResources.currentFrameIndex()];
+        *descriptorManager.frameDescriptorSets()[frameResources.currentFrameIndex()];
 
     renderContext.iblDescriptorSet =
-        *iblDescriptorSet;
+        *descriptorManager.iblDescriptorSet();
 
     renderContext.materialDescriptorSets =
         &materialDescriptorSets;
@@ -1109,10 +948,6 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
 }
 
-
-
-
-
 void Renderer::resetDefaultSceneLayout()
 {
     auto& renderables = scene.getRenderables();
@@ -1149,7 +984,6 @@ void Renderer::resetDefaultSceneLayout()
         renderables[i].getTransform().scale = { 1.0f, 1.0f, 1.0f };
     }
 }
-
 
 void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePaths)
 {
@@ -1372,16 +1206,14 @@ void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePa
     environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
 }
 
-
 void Renderer::cleanupDescriptorResources()
 {
-    iblDescriptorSet = nullptr;
+    
     materialDescriptorSets.clear();
-    frameDescriptorSets.clear();
+    
 
-    descriptorPool = nullptr;
+    
 }
-
 
 
 void Renderer::updateCameraControls()
@@ -1425,8 +1257,6 @@ void Renderer::updateCameraControls()
     camera.setFov(cameraFov);
     camera.setNearFar(cameraNear, cameraFar);
 }
-
-
 
 
 Material* Renderer::getSelectedRenderableMaterial()
@@ -1500,13 +1330,6 @@ bool Renderer::isWireframeSupported() const
 }
 
 
-
-
-
-
-
-
-
 void Renderer::resetEnvironmentSettings()
 {
     showSkybox = true;
@@ -1528,8 +1351,6 @@ void Renderer::resetEnvironmentSettings()
     rotateSkybox = true;
     rotateIBLLighting = true;
 }
-
-
 
 void Renderer::createHdrEnvironmentTexture(const std::string& path)
 {
@@ -1725,13 +1546,6 @@ void Renderer::createHdrEnvironmentTexture(const std::string& path)
         << hdrEnvironmentWidth << "x"
         << hdrEnvironmentHeight << "\n";
 }
-
-
-
-
-
-
-
 
 
 void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)

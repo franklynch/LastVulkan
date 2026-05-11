@@ -39,6 +39,8 @@ public:
         return *fallbackBlackCubeView;
     }
 
+ 
+
 
     void updateIBLDescriptorSet(
         vk::raii::DescriptorSet& iblDescriptorSet,

@@ -39,7 +39,7 @@ import vulkan_hpp;
 
 #include "EnvironmentSystem.hpp"  
 #include "SceneRenderer.hpp"
-
+#include "DescriptorManager.hpp"
 
 
 
@@ -75,14 +75,14 @@ public:
     void cleanupSwapChain();
     void recreateSwapChain();
     
-    void createDescriptorSetLayout();
+    
     
     void drawFrame();
 
     void createUniformBuffers();
-    void createDescriptorPool();
+    
+    
     void createDescriptorSets();
-
     void createMaterialDescriptorSets();
     void initImGui();
     void shutdownImGui();
@@ -120,94 +120,33 @@ private:
     FrameResources          frameResources;
     ScenePipelines          scenePipelines;
     EnvironmentSystem       environmentSystem;
-    SceneRenderer sceneRenderer;
+    SceneRenderer           sceneRenderer;
+    DescriptorManager       descriptorManager;
     
 
     EditorUiState           uiState;
     Camera                  camera;
     UniformBufferObject     lastUbo;
+    Scene                   scene;
 
 
     void clearSceneResources();
     void createDefaultMaterialTextures();
     void setupCameraDefaults();
 
-    
-
-    
-
-   
-
-    
-        
-
     vk::DescriptorSetLayout externalBloomBlurDescriptorSetLayout{};
     vk::Sampler externalPostProcessSampler{};
-
-    
+        
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
 
-
-
     std::string currentModelPath;
-     
-    
-    
-
-
-
-
-
-
-
-
-
 
     std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
     std::unique_ptr<EnvironmentRenderer> environmentRenderer;
     std::unique_ptr<IrradianceRenderer> irradianceRenderer;
     std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
-
-    float rotationSpeed = 10.0f;
-
-
-    float cameraRadius = 3.0f;
-    float cameraYaw = glm::radians(270.0f);
-    float cameraPitch = glm::radians(85.0f); // or slightly less, e.g. 75–80
-    float cameraFov = 45.0f;
-    float cameraNear = 0.1f;
-    float cameraFar = 10.0f;
-
-    float mouseOrbitSensitivity = 0.01f;
-    float mousePanSensitivity = 0.005f;
-    float mouseZoomSensitivity = 0.5f;
-    float minCameraRadius = 0.5f;
-    float maxCameraRadius = 50.0f;
-
-    float currentAnimationAngle = 0.0f;
-    bool animateModel = true;
-
-    glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
-    glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
-
-    
-    
-
-    glm::vec3 lightColor{ 1.0f };
-    float lightIntensity = 3.0f;
-
-    glm::vec3 ambientColor{ 1.0f };
-    float ambientIntensity = 0.0f;
-
-    float frameTimeMs = 0.0f;
-    float fps = 0.0f;
-
-    
-
- 
 
     Material* getSelectedRenderableMaterial();
     int getMaterialIndex(const Material& material) const;
@@ -247,14 +186,14 @@ private:
 
     glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;
 
-    Scene scene;
+   
 
-    vk::raii::DescriptorPool        descriptorPool = nullptr;
+    
     vk::raii::DescriptorSetLayout   frameDescriptorSetLayout = nullptr;
     vk::raii::DescriptorSetLayout   materialDescriptorSetLayout = nullptr;
 
 
-    std::vector<vk::raii::DescriptorSet> frameDescriptorSets;
+    
     std::vector<vk::raii::DescriptorSet> materialDescriptorSets;
 
 
@@ -281,7 +220,7 @@ private:
 
     // IBL descriptor set
     vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
-    vk::raii::DescriptorSet iblDescriptorSet{ nullptr };
+    
 
 
     struct IblCalibrationPreset
@@ -356,6 +295,43 @@ private:
     uint32_t hdrEnvironmentHeight = 0;
 
     void createHdrEnvironmentTexture(const std::string& path);
+
+    float rotationSpeed = 10.0f;
+
+
+    float cameraRadius = 3.0f;
+    float cameraYaw = glm::radians(270.0f);
+    float cameraPitch = glm::radians(85.0f); // or slightly less, e.g. 75–80
+    float cameraFov = 45.0f;
+    float cameraNear = 0.1f;
+    float cameraFar = 10.0f;
+
+    float mouseOrbitSensitivity = 0.01f;
+    float mousePanSensitivity = 0.005f;
+    float mouseZoomSensitivity = 0.5f;
+    float minCameraRadius = 0.5f;
+    float maxCameraRadius = 50.0f;
+
+    float currentAnimationAngle = 0.0f;
+    bool animateModel = true;
+
+    glm::vec4 clearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+    glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+
+
+
+
+    glm::vec3 lightColor{ 1.0f };
+    float lightIntensity = 3.0f;
+
+    glm::vec3 ambientColor{ 1.0f };
+    float ambientIntensity = 0.0f;
+
+    float frameTimeMs = 0.0f;
+    float fps = 0.0f;
+
+
 
 
 

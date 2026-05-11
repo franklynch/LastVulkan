@@ -1,0 +1,70 @@
+#pragma once
+
+#include <vector>
+
+#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
+#   include <vulkan/vulkan_raii.hpp>
+#else
+import vulkan_hpp;
+#endif
+
+#include "VulkanContext.hpp"
+
+class DescriptorManager
+{
+public:
+    explicit DescriptorManager(VulkanContext& vkContext);
+
+    
+
+    void createLayouts();
+    void cleanupLayouts();
+
+    void createDescriptorPool(
+        uint32_t maxFramesInFlight,
+        uint32_t materialCount);
+
+    void createFrameDescriptorSets(uint32_t maxFramesInFlight);
+    void createIBLDescriptorSet();
+
+    void allocateFrameDescriptorSets(uint32_t maxFramesInFlight);
+    void allocateIBLDescriptorSet();
+
+    vk::DescriptorSetLayout frameLayout() const { return *m_frameDescriptorSetLayout; }
+    vk::DescriptorSetLayout materialLayout() const { return *m_materialDescriptorSetLayout; }
+    vk::DescriptorSetLayout iblLayout() const { return *m_iblDescriptorSetLayout; }
+
+    const vk::raii::DescriptorSetLayout& frameLayoutRaii() const { return m_frameDescriptorSetLayout; }
+    const vk::raii::DescriptorSetLayout& materialLayoutRaii() const { return m_materialDescriptorSetLayout; }
+    const vk::raii::DescriptorSetLayout& iblLayoutRaii() const { return m_iblDescriptorSetLayout; }
+
+    const vk::raii::DescriptorPool& descriptorPool() const
+    {
+        return m_descriptorPool;
+    }
+    const std::vector<vk::raii::DescriptorSet>& frameDescriptorSets() const
+    {
+        return m_frameDescriptorSets;
+    }
+    
+    const vk::raii::DescriptorSet& iblDescriptorSet() const
+    {
+        return m_iblDescriptorSet;
+    }
+
+    vk::raii::DescriptorSet& iblDescriptorSet()
+    {
+        return m_iblDescriptorSet;
+    }
+
+private:
+    VulkanContext& vkContext;
+
+    vk::raii::DescriptorSetLayout m_frameDescriptorSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_materialDescriptorSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout m_iblDescriptorSetLayout = nullptr;
+
+    vk::raii::DescriptorPool m_descriptorPool = nullptr;
+    std::vector<vk::raii::DescriptorSet> m_frameDescriptorSets;
+    vk::raii::DescriptorSet m_iblDescriptorSet = nullptr;
+};

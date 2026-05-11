@@ -88,6 +88,7 @@
     <ClCompile Include="BrdfLutRenderer.cpp" />
     <ClCompile Include="BufferUtils.cpp" />
     <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="DescriptorManager.cpp" />
     <ClCompile Include="EditorPanels.cpp" />
     <ClCompile Include="EnvironmentRenderer.cpp" />
     <ClCompile Include="EnvironmentSystem.cpp" />
@@ -126,6 +127,7 @@
     <ClInclude Include="BrdfLutRenderer.hpp" />
     <ClInclude Include="BufferUtils.hpp" />
     <ClInclude Include="Camera.hpp" />
+    <ClInclude Include="DescriptorManager.hpp" />
     <ClInclude Include="EditorPanels.hpp" />
     <ClInclude Include="EditorUiState.hpp" />
     <ClInclude Include="EnvironmentRenderer.hpp" />
