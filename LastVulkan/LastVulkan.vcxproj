@@ -90,6 +90,7 @@
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="EditorPanels.cpp" />
     <ClCompile Include="EnvironmentRenderer.cpp" />
+    <ClCompile Include="EnvironmentSystem.cpp" />
     <ClCompile Include="EnvironmentUtils.cpp" />
     <ClCompile Include="FrameResources.cpp" />
     <ClCompile Include="GltfLoader.cpp" />
@@ -102,6 +103,7 @@
     <ClCompile Include="PrefilterRenderer.cpp" />
     <ClCompile Include="RenderTargets.cpp" />
     <ClCompile Include="ScenePipelines.cpp" />
+    <ClCompile Include="SceneRenderer.cpp" />
     <ClCompile Include="ShaderUtils.cpp" />
     <ClCompile Include="Source.cpp" />
     <ClCompile Include="SwapchainManager.cpp" />
@@ -128,6 +130,7 @@
     <ClInclude Include="EditorUiState.hpp" />
     <ClInclude Include="EnvironmentRenderer.hpp" />
     <ClInclude Include="EnvironmentResources.hpp" />
+    <ClInclude Include="EnvironmentSystem.hpp" />
     <ClInclude Include="EnvironmentUtils.hpp" />
     <ClInclude Include="FrameResources.hpp" />
     <ClInclude Include="GltfLoader.hpp" />
@@ -143,6 +146,7 @@
     <ClInclude Include="RenderTargets.hpp" />
     <ClInclude Include="Scene.hpp" />
     <ClInclude Include="ScenePipelines.hpp" />
+    <ClInclude Include="SceneRenderer.hpp" />
     <ClInclude Include="ShaderUtils.hpp" />
     <ClInclude Include="SwapchainManager.hpp" />
     <ClInclude Include="Texture2D.hpp" />

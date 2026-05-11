@@ -34,7 +34,17 @@ import vulkan_hpp;
 #include "Camera.hpp"
 #include "Scene.hpp"
 #include "EditorUiState.hpp"
-#include "EnvironmentResources.hpp"
+
+
+
+#include "EnvironmentSystem.hpp"  
+#include "SceneRenderer.hpp"
+
+
+
+
+
+
 #include "EnvironmentUtils.hpp"
 #include "BrdfLutRenderer.hpp"
 #include "EnvironmentRenderer.hpp"
@@ -86,9 +96,7 @@ public:
     void cleanupDescriptorResources();
     void updateCameraControls();
 
-    void drawPostProcessToSwapchain(
-        vk::raii::CommandBuffer& commandBuffer,
-        uint32_t imageIndex);
+    
 
     void updateUniformBuffer(uint32_t currentFrame);
 
@@ -101,18 +109,24 @@ public:
 
 
 private:
-    Window&             window;
-    VulkanContext&      vkContext;  
+    Window&                 window;
+    VulkanContext&          vkContext;  
     
-    BufferUtils         bufferUtils;
-    ImageUtils          imageUtils;
-    GltfSceneLoader     gltfSceneLoader;
-    SwapchainManager    swapchain;
-    RenderTargets       renderTargets;
-    FrameResources      frameResources;
-    ScenePipelines      scenePipelines;
+    BufferUtils             bufferUtils;
+    ImageUtils              imageUtils;
+    GltfSceneLoader         gltfSceneLoader;
+    SwapchainManager        swapchain;
+    RenderTargets           renderTargets;
+    FrameResources          frameResources;
+    ScenePipelines          scenePipelines;
+    EnvironmentSystem       environmentSystem;
+    SceneRenderer sceneRenderer;
+    
 
-    
+    EditorUiState           uiState;
+    Camera                  camera;
+    UniformBufferObject     lastUbo;
+
 
     void clearSceneResources();
     void createDefaultMaterialTextures();
@@ -139,7 +153,17 @@ private:
     std::string currentModelPath;
      
     
-    EnvironmentResources environment;
+    
+
+
+
+
+
+
+
+
+
+
     std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
     std::unique_ptr<EnvironmentRenderer> environmentRenderer;
     std::unique_ptr<IrradianceRenderer> irradianceRenderer;
@@ -169,7 +193,7 @@ private:
 
     glm::vec3 lightDirection = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
 
-    UniformBufferObject lastUbo;
+    
     
 
     glm::vec3 lightColor{ 1.0f };
@@ -192,9 +216,6 @@ private:
     bool isWireframeSupported() const;
     glm::vec3 computeSceneCenter() const;
 
-    EditorUiState uiState;
-
-    Camera camera;
 
     std::vector<std::unique_ptr<Texture2D>>     normalTextures;
     std::unique_ptr<Texture2D>                  defaultNormalTexture;
@@ -244,7 +265,7 @@ private:
 
     void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
     
-    void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
+    
     void resetEnvironmentSettings();
 
 
@@ -262,20 +283,6 @@ private:
     vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
     vk::raii::DescriptorSet iblDescriptorSet{ nullptr };
 
-    // Fallback BRDF LUT (2D)
-    std::unique_ptr<Texture2D> fallbackBrdfLut;
-
-    // Fallback cubemap (shared for irradiance/prefiltered/environment)
-    vk::raii::Image fallbackBlackCubeImage{ nullptr };
-    vk::raii::DeviceMemory fallbackBlackCubeMemory{ nullptr };
-    vk::raii::ImageView fallbackBlackCubeView{ nullptr };
-    vk::raii::Sampler fallbackBlackCubeSampler{ nullptr };
-
-    // --- IBL fallback setup ---
-    void createFallbackIBLResources();
-    void createFallbackBrdfLut();
-    void createFallbackBlackCube();
-    void updateIBLDescriptorSet();
 
     struct IblCalibrationPreset
     {
@@ -351,9 +358,7 @@ private:
     void createHdrEnvironmentTexture(const std::string& path);
 
 
-    vk::DescriptorImageInfo makeImageInfo(
-        vk::Sampler sampler,
-        vk::ImageView view) const;
+
 
     
     

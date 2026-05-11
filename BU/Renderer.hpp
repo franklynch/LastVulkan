@@ -18,11 +18,14 @@ import vulkan_hpp;
 
 #include "Window.hpp"
 #include "VulkanContext.hpp"
+
+#include "SwapchainManager.hpp"
+
 #include "RendererTypes.hpp"
 #include "BufferUtils.hpp"
 #include "ImageUtils.hpp"
 #include "MeshData.hpp"
-#include "ModelLoader.hpp"
+
 #include "GltfLoader.hpp"
 #include "Texture2D.hpp"
 #include "GpuMesh.hpp"
@@ -38,6 +41,10 @@ import vulkan_hpp;
 #include "IrradianceRenderer.hpp"
 #include "PrefilterRenderer.hpp"
 #include "PostProcessRenderer.hpp"
+#include "RenderTargets.hpp"
+#include "FrameResources.hpp"
+#include "ScenePipelines.hpp"
+#include "GltfSceneLoader.hpp"
 
 
 
@@ -47,6 +54,7 @@ class Renderer
 {
 public:
     Renderer(Window& window, VulkanContext& vkContext);
+
     ~Renderer();
 
     Renderer(const Renderer&) = delete;
@@ -56,37 +64,16 @@ public:
 
     void cleanupSwapChain();
     void recreateSwapChain();
-
-    void createSwapChain();
-    void createImageViews();
+    
     void createDescriptorSetLayout();
-    void createGraphicsPipeline();
-    void createColorResources();
-    void createDepthResources();
-
-    vk::Format findSupportedFormat(const std::vector<vk::Format>& candidates,
-        vk::ImageTiling tiling,
-        vk::FormatFeatureFlags features);
-
-    vk::Format findDepthFormat();
-
-    bool hasStencilComponent(vk::Format format);
-
-
+    
     void drawFrame();
 
-
-    void loadModel();
     void createUniformBuffers();
     void createDescriptorPool();
     void createDescriptorSets();
 
     void createMaterialDescriptorSets();
-    
-
-    void createCommandBuffers();
-    void createSyncObjects();
-
     void initImGui();
     void shutdownImGui();
     void beginImGuiFrame();
@@ -94,24 +81,9 @@ public:
     void renderImGui(vk::CommandBuffer commandBuffer);
     void buildOverlay();
 
-    
-
-    
-    
-       
     void focusSelectedRenderable();
-
     void resetDefaultSceneLayout();
-    
-    
-    
-
     void cleanupDescriptorResources();
-    
-    
-
-  
-
     void updateCameraControls();
 
     void drawPostProcessToSwapchain(
@@ -123,6 +95,29 @@ public:
 
     void recordCommandBuffer(uint32_t imageIndex);
 
+    Texture2D& getDefaultTexture();
+    Material& getDefaultMaterial();
+
+
+
+private:
+    Window&             window;
+    VulkanContext&      vkContext;  
+    
+    BufferUtils         bufferUtils;
+    ImageUtils          imageUtils;
+    GltfSceneLoader     gltfSceneLoader;
+    SwapchainManager    swapchain;
+    RenderTargets       renderTargets;
+    FrameResources      frameResources;
+    ScenePipelines      scenePipelines;
+
+    
+
+    void clearSceneResources();
+    void createDefaultMaterialTextures();
+    void setupCameraDefaults();
+
     
 
     
@@ -130,55 +125,6 @@ public:
    
 
     
-
-
-
-    static uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const& surfaceCapabilities);
-    static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(std::vector<vk::SurfaceFormatKHR> const& availableFormats);
-    static vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const& availablePresentModes);
-    vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const& capabilities);
-
-    
-    
-
-    Texture2D& getDefaultTexture();
-    Material& getDefaultMaterial();
-
-
-
-
-
-
-
-
-private:
-    Window&             window;
-    VulkanContext&      vkContext;
-    BufferUtils         bufferUtils;
-    ImageUtils          imageUtils;
-
-    struct GltfTextureUploadMaps
-    {
-        std::vector<int> baseColor;
-        std::vector<int> normal;
-        std::vector<int> metallicRoughness;
-        std::vector<int> occlusion;
-        std::vector<int> emissive;
-    };
-
-    void clearSceneResources();
-    void createDefaultMaterialTextures();
-    void setupCameraDefaults();
-
-    GltfSceneData loadCurrentGltfScene();
-
-    GltfTextureUploadMaps uploadGltfTextures(const GltfSceneData& imported);
-
-    void createMaterialsFromGltf(
-        const GltfSceneData& imported,
-        const GltfTextureUploadMaps& textureMaps);
-
-    void createRenderablesFromGltf(const GltfSceneData& imported);
         
 
     vk::DescriptorSetLayout externalBloomBlurDescriptorSetLayout{};
@@ -188,10 +134,7 @@ private:
     bool imguiInitialized = false;
     vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
 
-    vk::raii::Pipeline solidPipeline = nullptr;
-    vk::raii::Pipeline solidDoubleSidedPipeline = nullptr;
-    vk::raii::Pipeline wireframePipeline = nullptr;
-    vk::raii::Pipeline wireframeDoubleSidedPipeline = nullptr;
+
 
     std::string currentModelPath;
      
@@ -202,15 +145,6 @@ private:
     std::unique_ptr<IrradianceRenderer> irradianceRenderer;
     std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
-   
-
-    
-
-    
-
-      
-    
-    
 
     float rotationSpeed = 10.0f;
 
@@ -273,46 +207,14 @@ private:
     std::unique_ptr<Texture2D>                  defaultAoTexture;
 
     std::vector<std::unique_ptr<Texture2D>>     emissiveTextures;
-    std::unique_ptr<Texture2D> defaultEmissiveTexture;
-
-
-    vk::raii::SwapchainKHR              swapChain = nullptr;
-    std::vector<vk::Image>              swapChainImages;
-    vk::SurfaceFormatKHR                swapChainSurfaceFormat;
-    vk::Extent2D                        swapChainExtent;
-    std::vector<vk::raii::ImageView>    swapChainImageViews;
-
-    vk::raii::PipelineLayout            pipelineLayout = nullptr;
-
-
-    vk::raii::Image             colorImage = nullptr;
-    vk::raii::DeviceMemory      colorImageMemory = nullptr;
-    vk::raii::ImageView         colorImageView = nullptr;
-
-    vk::Format                  depthFormat;
-    vk::ImageAspectFlags        depthAspect;
-
-    vk::raii::Image             depthImage = nullptr;
-    vk::raii::DeviceMemory      depthImageMemory = nullptr;
-    vk::raii::ImageView         depthImageView = nullptr;
+    std::unique_ptr<Texture2D>                  defaultEmissiveTexture;
+    
+    
 
     
 
     std::unique_ptr<PostProcessRenderer> postProcessRenderer;
 
-    std::vector<vk::raii::CommandBuffer> commandBuffers;
-
-    std::vector<vk::raii::Semaphore>    presentCompleteSemaphores;
-    std::vector<vk::raii::Semaphore>    renderFinishedSemaphores;
-    std::vector<vk::raii::Fence>        inFlightFences;
-    std::vector<vk::Fence>              imagesInFlight;
-
-    std::vector<bool> swapChainImageInitialized;
-
-    uint32_t frameIndex = 0;
-
-    MeshData meshData;
-    ModelLoader modelLoader;
 
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
 
@@ -341,7 +243,7 @@ private:
 
 
     void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
-    void createSkyboxPipeline();
+    
     void drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex);
     void resetEnvironmentSettings();
 
@@ -352,8 +254,8 @@ private:
     vk::raii::ImageView environmentCubeView{ nullptr };
     vk::raii::Sampler environmentCubeSampler{ nullptr };
 
-    vk::raii::PipelineLayout skyboxPipelineLayout{ nullptr };
-    vk::raii::Pipeline skyboxPipeline{ nullptr };
+    
+    
 
 
     // IBL descriptor set
@@ -429,25 +331,14 @@ private:
     vk::raii::ImageView prefilteredCubeView{ nullptr };
     vk::raii::Sampler prefilteredCubeSampler{ nullptr };
 
-    void createCubemapFromDDS(
-        const std::string& path,
-        vk::raii::Image& outImage,
-        vk::raii::DeviceMemory& outMemory,
-        vk::raii::ImageView& outView,
-        vk::raii::Sampler& outSampler,
-        bool allowMipSampling);
 
-    void createIrradianceCubemapFromDDS(const std::string& path);
-    void createPrefilteredCubemapFromDDS(const std::string& path);
+  
 
-    bool toneMappingEnabled = true;
-    bool gammaEnabled = true;
-    float postExposure = 1.0f;
+   
 
     bool debugSkyboxFaces = false;
 
-    vk::raii::Pipeline transparentPipeline = nullptr;
-    vk::raii::Pipeline transparentDoubleSidedPipeline = nullptr;
+    
 
     vk::raii::Image hdrEnvironmentImage{ nullptr };
     vk::raii::DeviceMemory hdrEnvironmentMemory{ nullptr };
@@ -466,8 +357,7 @@ private:
 
     
     
-    float bloomStrength = 0.15f;
-    bool  bloomEnabled = true;
+ 
     
     
   

@@ -45,6 +45,9 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , renderTargets(vkContext, imageUtils)
     , frameResources(vkContext)
     , scenePipelines(vkContext)
+    , environmentSystem(vkContext, bufferUtils, imageUtils)
+    , sceneRenderer(vkContext)
+    
 {
     init();
 }
@@ -54,25 +57,25 @@ Renderer::~Renderer()
     shutdownImGui();
     vkContext.getDevice().waitIdle();
 
-    environment.runtimeBrdfLut.pipeline = nullptr;
-    environment.runtimeBrdfLut.layout = nullptr;
+    environmentSystem.resources().runtimeBrdfLut.pipeline = nullptr;
+    environmentSystem.resources().runtimeBrdfLut.layout = nullptr;
 
-    environment.runtimeBrdfLut.sampler = nullptr;
-    environment.runtimeBrdfLut.view = nullptr;
-    environment.runtimeBrdfLut.memory = nullptr;
-    environment.runtimeBrdfLut.image = nullptr;
+    environmentSystem.resources().runtimeBrdfLut.sampler = nullptr;
+    environmentSystem.resources().runtimeBrdfLut.view = nullptr;
+    environmentSystem.resources().runtimeBrdfLut.memory = nullptr;
+    environmentSystem.resources().runtimeBrdfLut.image = nullptr;
 
-    for (auto& view : environment.runtimeEnvironmentCubeFaces.views)
+    for (auto& view : environmentSystem.resources().runtimeEnvironmentCubeFaces.views)
     {
         view = nullptr;
     }
 
-    environment.runtimeEnvironmentCube.sampler = nullptr;
-    environment.runtimeEnvironmentCube.view = nullptr;
-    environment.runtimeEnvironmentCube.memory = nullptr;
-    environment.runtimeEnvironmentCube.image = nullptr;
+    environmentSystem.resources().runtimeEnvironmentCube.sampler = nullptr;
+    environmentSystem.resources().runtimeEnvironmentCube.view = nullptr;
+    environmentSystem.resources().runtimeEnvironmentCube.memory = nullptr;
+    environmentSystem.resources().runtimeEnvironmentCube.image = nullptr;
 
-    for (auto& mipViews : environment.runtimePrefilteredCubeMipFaceViews)
+    for (auto& mipViews : environmentSystem.resources().runtimePrefilteredCubeMipFaceViews)
     {
         for (auto& view : mipViews.views)
         {
@@ -80,12 +83,12 @@ Renderer::~Renderer()
         }
     }
 
-    environment.runtimePrefilteredCubeMipFaceViews.clear();
+    environmentSystem.resources().runtimePrefilteredCubeMipFaceViews.clear();
 
-    environment.runtimePrefilteredCube.sampler = nullptr;
-    environment.runtimePrefilteredCube.view = nullptr;
-    environment.runtimePrefilteredCube.memory = nullptr;
-    environment.runtimePrefilteredCube.image = nullptr;
+    environmentSystem.resources().runtimePrefilteredCube.sampler = nullptr;
+    environmentSystem.resources().runtimePrefilteredCube.view = nullptr;
+    environmentSystem.resources().runtimePrefilteredCube.memory = nullptr;
+    environmentSystem.resources().runtimePrefilteredCube.image = nullptr;
 
    
 
@@ -94,15 +97,15 @@ Renderer::~Renderer()
     hdrEnvironmentMemory = nullptr;
     hdrEnvironmentImage = nullptr;
 
-    for (auto& view : environment.runtimeIrradianceCubeFaces.views)
+    for (auto& view : environmentSystem.resources().runtimeIrradianceCubeFaces.views)
     {
         view = nullptr;
     }
 
-    environment.runtimeIrradianceCube.sampler = nullptr;
-    environment.runtimeIrradianceCube.view = nullptr;
-    environment.runtimeIrradianceCube.memory = nullptr;
-    environment.runtimeIrradianceCube.image = nullptr;
+    environmentSystem.resources().runtimeIrradianceCube.sampler = nullptr;
+    environmentSystem.resources().runtimeIrradianceCube.view = nullptr;
+    environmentSystem.resources().runtimeIrradianceCube.memory = nullptr;
+    environmentSystem.resources().runtimeIrradianceCube.image = nullptr;
 
     cleanupDescriptorResources();
 }
@@ -152,16 +155,11 @@ void Renderer::init()
         *frameDescriptorSetLayout,
         *iblDescriptorSetLayout);
 
-    
-   
-           
-
-
-    
     clearSceneResources();
     createDefaultMaterialTextures();
     setupCameraDefaults();
-
+    
+   
     currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
     
 
@@ -182,22 +180,24 @@ void Renderer::init()
         *defaultEmissiveTexture,
         camera);
 
+  
    
+    resetEnvironmentSettings();
 
+    brdfLutRenderer = std::make_unique<BrdfLutRenderer>(vkContext, bufferUtils);
 
-    
+    brdfLutRenderer->init(environmentSystem.resources());
 
+    environmentSystem.createFallbackResources();
     
 
     uiState.selectedRenderableIndex = scene.empty() ? -1 : 0;
 
-    resetEnvironmentSettings();
+   
 
     createUniformBuffers();
 
-    brdfLutRenderer = std::make_unique<BrdfLutRenderer>(vkContext, bufferUtils);
-    brdfLutRenderer->init(environment);
-    createFallbackIBLResources();
+    
 
     createDescriptorPool();
     createDescriptorSets();
@@ -221,18 +221,22 @@ void Renderer::init()
     
     environmentRenderer = std::make_unique<EnvironmentRenderer>(vkContext, bufferUtils);
     environmentRenderer->init(
-        environment,
+        environmentSystem.resources(),
         hdrEnvironmentSampler,
         hdrEnvironmentView);
     
 
     irradianceRenderer = std::make_unique<IrradianceRenderer>(vkContext, bufferUtils);
-    irradianceRenderer->init(environment);
+    irradianceRenderer->init(environmentSystem.resources());
     
     prefilterRenderer = std::make_unique<PrefilterRenderer>(vkContext, bufferUtils);
-    prefilterRenderer->init(environment);
+    prefilterRenderer->init(environmentSystem.resources());
 
-    updateIBLDescriptorSet();
+
+    environmentSystem.updateIBLDescriptorSet(
+        iblDescriptorSet,
+        *environmentCubeSampler,
+        *environmentCubeView);
 
    
     initImGui();
@@ -764,20 +768,6 @@ void Renderer::createMaterialDescriptorSets()
     }
 }
 
-void Renderer::drawPostProcessToSwapchain(
-    vk::raii::CommandBuffer& commandBuffer,
-    uint32_t imageIndex)
-{
-    postProcessRenderer->beginFinalPass(
-        commandBuffer,
-        *swapchain.imageViews()[imageIndex]);
-
-    postProcessRenderer->recordFinalComposite(commandBuffer);
-
-    renderImGui(*commandBuffer);
-
-    postProcessRenderer->endFinalPass(commandBuffer);
-}
 
 
 
@@ -865,9 +855,9 @@ void Renderer::drawFrame()
 
     frameResources.imageInFlight(imageIndex) = *frameResources.inFlightFence(currentFrame);
 
-    beginImGuiFrame();
+  //  beginImGuiFrame();
     updateCameraControls();
-    buildImGui();
+  //  buildImGui();
 
     updateUniformBuffer(currentFrame);
 
@@ -1031,301 +1021,87 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         0,
         vk::Rect2D(vk::Offset2D(0, 0), extent));
 
-    // Draw skybox first
-    drawSkybox(commandBuffer, imageIndex);
 
-    // -------------------------
-    // Pass 1: OPAQUE + MASK
-    // -------------------------
-    for (auto& renderable : scene.getRenderables())
-    {
-        Material& renderableMaterial = renderable.getMaterial();
 
-        const bool isBlendMaterial = (renderableMaterial.getAlphaMode() == "BLEND");
-        if (isBlendMaterial)
-        {
-            continue;
-        }
+   
 
-        uint32_t materialIndex = renderable.getMaterialIndex();
-        assert(materialIndex < materials.size());
-        
-        commandBuffer.bindVertexBuffers(
-            0,
-            *renderable.getMesh().getVertexBuffer(),
-            { 0 });
+    SceneRenderer::SceneRenderContext renderContext{};
 
-        commandBuffer.bindIndexBuffer(
-            *renderable.getMesh().getIndexBuffer(),
-            0,
-            vk::IndexType::eUint32);
+    renderContext.pipelineLayout = scenePipelines.layout();
 
-        
+    renderContext.solidPipeline =
+        scenePipelines.solid(false);
 
-        vk::Pipeline activePipeline =
-            uiState.wireframeRequested
-            ? scenePipelines.wireframe(renderableMaterial.isDoubleSided())
-            : scenePipelines.solid(renderableMaterial.isDoubleSided());
+    renderContext.solidDoubleSidedPipeline =
+        scenePipelines.solid(true);
 
-        commandBuffer.bindPipeline(
-            vk::PipelineBindPoint::eGraphics,
-            activePipeline);
+    renderContext.wireframePipeline =
+        scenePipelines.wireframe(false);
 
-        std::array<vk::DescriptorSet, 3> sets = {
-            *frameDescriptorSets[frameResources.currentFrameIndex()],
-            *materialDescriptorSets[materialIndex],
-            *iblDescriptorSet
-        };
+    renderContext.wireframeDoubleSidedPipeline =
+        scenePipelines.wireframe(true);
 
-        commandBuffer.bindDescriptorSets(
-            vk::PipelineBindPoint::eGraphics,
-            scenePipelines.layout(),
-            0,
-            sets,
-            {});
+    renderContext.frameDescriptorSet =
+        *frameDescriptorSets[frameResources.currentFrameIndex()];
 
-        PushConstantData pushData{};
-        pushData.model = renderable.getTransform().toMatrix();
+    renderContext.iblDescriptorSet =
+        *iblDescriptorSet;
 
-        if (animateModel)
-        {
-            pushData.model = glm::rotate(
-                pushData.model,
-                currentAnimationAngle,
-                glm::vec3(0.0f, 0.0f, 1.0f));
-        }
+    renderContext.materialDescriptorSets =
+        &materialDescriptorSets;
 
-        glm::mat3 normalMatrix =
-            glm::transpose(glm::inverse(glm::mat3(pushData.model)));
+    renderContext.wireframeEnabled =
+        uiState.wireframeRequested;
 
-        pushData.normalMatrix = normalMatrix;
-        pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
+    renderContext.animateModel =
+        animateModel;
 
-        const bool isMaskMaterial = (renderableMaterial.getAlphaMode() == "MASK");
+    renderContext.currentAnimationAngle =
+        currentAnimationAngle;
 
-        pushData.materialParams = glm::vec4(
-            renderableMaterial.getMetallicFactor(),
-            renderableMaterial.getRoughnessFactor(),
-            renderableMaterial.getNormalScale(),
-            renderableMaterial.getAlphaCutoff());
+    renderContext.transparentPipeline =
+        scenePipelines.transparent(false);
 
-        pushData.alphaModeParams = glm::vec4(
-            isMaskMaterial ? 1.0f : 0.0f,
-            0.0f, // isBlend = false in opaque/mask pass
-            renderableMaterial.getOcclusionStrength(),
-            0.0f);
+    renderContext.transparentDoubleSidedPipeline =
+        scenePipelines.transparent(true);
 
-        
-        pushData.emissiveFactor =
-            glm::vec4(renderableMaterial.getEmissiveFactor(), 1.0f);
+    renderContext.skyboxPipeline =
+        scenePipelines.skybox();
 
-        
+    renderContext.skyboxPipelineLayout =
+        scenePipelines.skyboxLayout();
 
-        cmd.pushConstants(
-            scenePipelines.layout(),
-            vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
-            0,
-            sizeof(PushConstantData),
-            &pushData);
+    sceneRenderer.renderSkybox(
+        commandBuffer,
+        renderContext);
 
-        commandBuffer.drawIndexed(
-            renderable.getMesh().getIndexCount(),
-            1,
-            0,
-            0,
-            0);
-    }
+    sceneRenderer.renderOpaque(
+        commandBuffer,
+        scene,
+        renderContext);
 
-    // -------------------------
-    // Pass 2: BLEND
-    // -------------------------
-    std::vector<Renderable*> transparentRenderables;
-    transparentRenderables.reserve(scene.getRenderables().size());
+    sceneRenderer.renderTransparent(
+        commandBuffer,
+        scene,
+        camera,
+        renderContext);
 
-    for (auto& renderable : scene.getRenderables())
-    {
-        if (renderable.getMaterial().getAlphaMode() == "BLEND")
-        {
-            transparentRenderables.push_back(&renderable);
-        }
-    }
-
-    // Back-to-front sort for transparent objects
-    const glm::vec3 cameraPos = camera.getPosition();
-
-    std::sort(
-        transparentRenderables.begin(),
-        transparentRenderables.end(),
-        [&](const Renderable* a, const Renderable* b)
-        {
-            glm::vec3 aPos = glm::vec3(a->getTransform().toMatrix()[3]);
-            glm::vec3 bPos = glm::vec3(b->getTransform().toMatrix()[3]);
-
-            float da = glm::dot(aPos - cameraPos, aPos - cameraPos);
-            float db = glm::dot(bPos - cameraPos, bPos - cameraPos);
-
-            return da > db; // back-to-front
-        });
-
-    for (Renderable* renderable : transparentRenderables)
-    {
-        Material& renderableMaterial = renderable->getMaterial();
-
-        uint32_t materialIndex = renderable->getMaterialIndex();
-        assert(materialIndex < materials.size());
-
-        commandBuffer.bindVertexBuffers(
-            0,
-            *renderable->getMesh().getVertexBuffer(),
-            { 0 });
-
-        commandBuffer.bindIndexBuffer(
-            *renderable->getMesh().getIndexBuffer(),
-            0,
-            vk::IndexType::eUint32);
-
-        vk::Pipeline activePipeline =
-            scenePipelines.transparent(
-                renderableMaterial.isDoubleSided());
-
-        commandBuffer.bindPipeline(
-            vk::PipelineBindPoint::eGraphics,
-            activePipeline);
-
-        std::array<vk::DescriptorSet, 3> sets = {
-            *frameDescriptorSets[frameResources.currentFrameIndex()],
-            *materialDescriptorSets[materialIndex],
-            *iblDescriptorSet
-        };
-
-        commandBuffer.bindDescriptorSets(
-            vk::PipelineBindPoint::eGraphics,
-            scenePipelines.layout(),
-            0,
-            sets,
-            {});
-
-        PushConstantData pushData{};
-        pushData.model = renderable->getTransform().toMatrix();
-
-        if (animateModel)
-        {
-            pushData.model = glm::rotate(
-                pushData.model,
-                currentAnimationAngle,
-                glm::vec3(0.0f, 0.0f, 1.0f));
-        }
-
-        glm::mat3 normalMatrix =
-            glm::transpose(glm::inverse(glm::mat3(pushData.model)));
-
-        pushData.normalMatrix = normalMatrix;
-        pushData.baseColorFactor = renderableMaterial.getBaseColorFactor();
-
-        pushData.materialParams = glm::vec4(
-            renderableMaterial.getMetallicFactor(),
-            renderableMaterial.getRoughnessFactor(),
-            renderableMaterial.getNormalScale(),
-            renderableMaterial.getAlphaCutoff());
-
-        const bool isMaskMaterial = (renderableMaterial.getAlphaMode() == "MASK");
-        const bool isBlendMaterial = (renderableMaterial.getAlphaMode() == "BLEND");
-
-        pushData.alphaModeParams = glm::vec4(
-            isMaskMaterial ? 1.0f : 0.0f,
-            isBlendMaterial ? 1.0f : 0.0f,
-            renderableMaterial.getOcclusionStrength(),
-            0.0f);
-
-        pushData.emissiveFactor =
-            glm::vec4(renderableMaterial.getEmissiveFactor(), 1.0f);
-
-        
-
-        cmd.pushConstants(
-            scenePipelines.layout(),
-            vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
-            0,
-            sizeof(PushConstantData),
-            &pushData);
-
-        commandBuffer.drawIndexed(
-            renderable->getMesh().getIndexCount(),
-            1,
-            0,
-            0,
-            0);
-    }
 
   //  renderImGui(*commandBuffer);
 
     commandBuffer.endRendering();
 
-    TransitionUtils::transitionToShaderReadOnly(
-        cmd,
-        postProcessRenderer->getHdrImage(),
-        vk::ImageLayout::eColorAttachmentOptimal);
 
-    TransitionUtils::transitionToColorAttachment(
-        cmd,
-        postProcessRenderer->getBloomBrightImage(),
-        vk::ImageLayout::eUndefined);
-
-    postProcessRenderer->recordBloomExtract(commandBuffer);
-
-    // bloomBright -> shader read for horizontal blur
-    TransitionUtils::transitionToShaderReadOnly(
-        cmd,
-        postProcessRenderer->getBloomBrightImage(),
-        vk::ImageLayout::eColorAttachmentOptimal);
-
-    // Horizontal blur: bloomBright -> bloomBlurTemp
-    TransitionUtils::transitionToColorAttachment(
-        cmd,
-        postProcessRenderer->getBloomBlurTempImage(),
-        vk::ImageLayout::eUndefined);
-
-    postProcessRenderer->recordBloomBlurFromBright(
-        commandBuffer,
-        postProcessRenderer->getBloomBlurTempView(),
-        glm::vec2(1.0f, 0.0f));
-
-    // bloomBlurTemp -> shader read for vertical blur
-    TransitionUtils::transitionToShaderReadOnly(
-        cmd,
-        postProcessRenderer->getBloomBlurTempImage(),
-        vk::ImageLayout::eColorAttachmentOptimal);
-
-    // Vertical blur: bloomBlurTemp -> bloomBright
-    TransitionUtils::transitionToColorAttachment(
-        cmd,
-        postProcessRenderer->getBloomBrightImage(),
-        vk::ImageLayout::eShaderReadOnlyOptimal);
-
-    postProcessRenderer->recordBloomBlurFromTemp(
-        commandBuffer,
-        postProcessRenderer->getBloomBrightView(),
-        glm::vec2(0.0f, 1.0f));
-
-    // blurred bloomBright -> shader read for pyramid
-    TransitionUtils::transitionToShaderReadOnly(
-        cmd,
-        postProcessRenderer->getBloomBrightImage(),
-        vk::ImageLayout::eColorAttachmentOptimal);
-
-    postProcessRenderer->recordBloomPyramid(commandBuffer);
+    postProcessRenderer->executeBloomChain(commandBuffer);
 
     // Final post-process pass
-    TransitionUtils::transitionToColorAttachment(
-        cmd,
+
+    postProcessRenderer->executeFinalComposite(
+        commandBuffer,
         swapchain.images()[imageIndex],
+        *swapchain.imageViews()[imageIndex],
         swapChainOldLayout);
 
-    drawPostProcessToSwapchain(commandBuffer, imageIndex);
-
-    TransitionUtils::transitionToPresent(
-        cmd,
-        swapchain.images()[imageIndex]);
 
     frameResources.markImageInitialized(imageIndex);
 
@@ -1723,313 +1499,13 @@ bool Renderer::isWireframeSupported() const
     return vkContext.isFillModeNonSolidEnabled();
 }
 
-void Renderer::createFallbackIBLResources()
-{
-    createFallbackBrdfLut();
-    createFallbackBlackCube();
-}
-
-void Renderer::createFallbackBrdfLut()
-{
-    const unsigned char blackPixel[4] = { 0, 0, 0, 255 };
-
-    Texture2D::SamplerOptions samplerOptions{};
-    samplerOptions.addressModeU = vk::SamplerAddressMode::eClampToEdge;
-    samplerOptions.addressModeV = vk::SamplerAddressMode::eClampToEdge;
-    samplerOptions.addressModeW = vk::SamplerAddressMode::eClampToEdge;
-    samplerOptions.enableAnisotropy = false;
-    samplerOptions.maxLod = 0.0f;
-
-    fallbackBrdfLut = std::make_unique<Texture2D>(
-        vkContext,
-        bufferUtils,
-        imageUtils,
-        blackPixel,
-        1,
-        1,
-        4,
-        "Fallback BRDF LUT",
-        vk::Format::eR8G8B8A8Unorm,
-        samplerOptions
-    );
-}
-
-void Renderer::createFallbackBlackCube()
-{
-    auto& device = vkContext.getDevice();
-
-    const vk::Format format = vk::Format::eR8G8B8A8Unorm;
-
-    const std::array<unsigned char, 24> blackFaces = {
-        0, 0, 0, 255,
-        0, 0, 0, 255,
-        0, 0, 0, 255,
-        0, 0, 0, 255,
-        0, 0, 0, 255,
-        0, 0, 0, 255
-    };
-
-    vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(blackFaces.size());
-
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
-
-    bufferUtils.createBuffer(
-        imageSize,
-        vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory
-    );
-
-    void* mapped = stagingMemory.mapMemory(0, imageSize);
-    std::memcpy(mapped, blackFaces.data(), static_cast<size_t>(imageSize));
-    stagingMemory.unmapMemory();
-
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo
-        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
-        .setImageType(vk::ImageType::e2D)
-        .setFormat(format)
-        .setExtent(vk::Extent3D{ 1, 1, 1 })
-        .setMipLevels(1)
-        .setArrayLayers(6)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined);
-
-    fallbackBlackCubeImage = vk::raii::Image(device, imageInfo);
-
-    vk::MemoryRequirements memReq = fallbackBlackCubeImage.getMemoryRequirements();
-
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memReq.size)
-        .setMemoryTypeIndex(
-            bufferUtils.findMemoryType(
-                memReq.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal
-            )
-        );
-
-    fallbackBlackCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
-    fallbackBlackCubeImage.bindMemory(*fallbackBlackCubeMemory, 0);
-
-    auto cmd = bufferUtils.beginSingleTimeCommands();
-
-    vk::ImageMemoryBarrier toTransfer{};
-    toTransfer
-        .setOldLayout(vk::ImageLayout::eUndefined)
-        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*fallbackBlackCubeImage)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(6))
-        .setSrcAccessMask({})
-        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTopOfPipe,
-        vk::PipelineStageFlagBits::eTransfer,
-        {},
-        nullptr,
-        nullptr,
-        toTransfer
-    );
-
-    std::array<vk::BufferImageCopy, 6> copyRegions{};
-    for (uint32_t face = 0; face < 6; ++face)
-    {
-        copyRegions[face]
-            .setBufferOffset(face * 4)
-            .setBufferRowLength(0)
-            .setBufferImageHeight(0)
-            .setImageSubresource(
-                vk::ImageSubresourceLayers{}
-                .setAspectMask(vk::ImageAspectFlagBits::eColor)
-                .setMipLevel(0)
-                .setBaseArrayLayer(face)
-                .setLayerCount(1))
-            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
-            .setImageExtent(vk::Extent3D{ 1, 1, 1 });
-    }
-
-    cmd.copyBufferToImage(
-        *stagingBuffer,
-        *fallbackBlackCubeImage,
-        vk::ImageLayout::eTransferDstOptimal,
-        copyRegions
-    );
-
-    vk::ImageMemoryBarrier toShaderRead{};
-    toShaderRead
-        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*fallbackBlackCubeImage)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(6))
-        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eFragmentShader,
-        {},
-        nullptr,
-        nullptr,
-        toShaderRead
-    );
-
-    bufferUtils.endSingleTimeCommands(cmd);
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo
-        .setImage(*fallbackBlackCubeImage)
-        .setViewType(vk::ImageViewType::eCube)
-        .setFormat(format)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(6));
-
-    fallbackBlackCubeView = vk::raii::ImageView(device, viewInfo);
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setAnisotropyEnable(VK_FALSE)
-        .setMaxAnisotropy(1.0f)
-        .setMinLod(0.0f)
-        .setMaxLod(0.0f)
-        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
-        .setUnnormalizedCoordinates(VK_FALSE);
-
-    fallbackBlackCubeSampler = vk::raii::Sampler(device, samplerInfo);
-}
-
-void Renderer::updateIBLDescriptorSet()
-{
-    if (iblDescriptorSet == nullptr)
-    {
-        throw std::runtime_error("updateIBLDescriptorSet: iblDescriptorSet is null");
-    }
-
-    if (environmentCubeSampler == nullptr || environmentCubeView == nullptr)
-    {
-        throw std::runtime_error("updateIBLDescriptorSet: fallback environment cubemap is not initialized");
-    }
-
-    const bool hasFallbackBrdf =
-        fallbackBrdfLut &&
-        fallbackBrdfLut->getSampler() != nullptr &&
-        fallbackBrdfLut->getImageView() != nullptr;
-
-    const bool hasRuntimeBrdf =
-        environment.runtimeBrdfLut.sampler != nullptr &&
-        environment.runtimeBrdfLut.view != nullptr;
-
-    if (!hasRuntimeBrdf && !hasFallbackBrdf)
-    {
-        throw std::runtime_error(
-            "updateIBLDescriptorSet: no BRDF LUT available (runtime or fallback)");
-    }
-
-    auto& device = vkContext.getDevice();
-
-    const bool useRuntimeIrradiance =
-        environment.runtimeIrradianceCube.sampler != nullptr &&
-        environment.runtimeIrradianceCube.view != nullptr;
-
-    const bool useRuntimePrefiltered =
-        environment.runtimePrefilteredCube.sampler != nullptr &&
-        environment.runtimePrefilteredCube.view != nullptr;
-
-    const bool useRuntimeBrdf =
-        environment.runtimeBrdfLut.sampler != nullptr &&
-        environment.runtimeBrdfLut.view != nullptr;
-
-    const bool useRuntimeEnvironment =
-        environment.runtimeEnvironmentCube.sampler != nullptr &&
-        environment.runtimeEnvironmentCube.view != nullptr;
-
-    auto irradianceInfo = useRuntimeIrradiance
-        ? makeImageInfo(environment.runtimeIrradianceCube.sampler, environment.runtimeIrradianceCube.view)
-        : makeImageInfo(*irradianceCubeSampler, *irradianceCubeView);
-
-    auto prefilteredInfo = useRuntimePrefiltered
-        ? makeImageInfo(environment.runtimePrefilteredCube.sampler, environment.runtimePrefilteredCube.view)
-        : makeImageInfo(*prefilteredCubeSampler, *prefilteredCubeView);
-
-    auto brdfInfo = useRuntimeBrdf
-        ? makeImageInfo(environment.runtimeBrdfLut.sampler, environment.runtimeBrdfLut.view)
-        : makeImageInfo(fallbackBrdfLut->getSampler(), fallbackBrdfLut->getImageView());
-
-    
-
-    auto environmentInfo = useRuntimeEnvironment
-        ? makeImageInfo(environment.runtimeEnvironmentCube.sampler, environment.runtimeEnvironmentCube.view)
-        : makeImageInfo(*environmentCubeSampler, *environmentCubeView);
 
 
-    std::array<vk::WriteDescriptorSet, 4> writes{};
 
-    writes[0]
-        .setDstSet(*iblDescriptorSet)
-        .setDstBinding(0)
-        .setDstArrayElement(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(irradianceInfo);
 
-    writes[1]
-        .setDstSet(*iblDescriptorSet)
-        .setDstBinding(1)
-        .setDstArrayElement(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(prefilteredInfo);
 
-    writes[2]
-        .setDstSet(*iblDescriptorSet)
-        .setDstBinding(2)
-        .setDstArrayElement(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(brdfInfo);
 
-    writes[3]
-        .setDstSet(*iblDescriptorSet)
-        .setDstBinding(3)
-        .setDstArrayElement(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setImageInfo(environmentInfo);
 
-    device.updateDescriptorSets(writes, {});
-}
 
 void Renderer::resetEnvironmentSettings()
 {
@@ -2252,59 +1728,10 @@ void Renderer::createHdrEnvironmentTexture(const std::string& path)
 
 
 
-void Renderer::drawSkybox(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex)
-{
-    (void)imageIndex;
-
-    if (scenePipelines.skybox() == nullptr ||
-        scenePipelines.skyboxLayout() == nullptr)
-    {
-        return;
-    }
-
-    if (iblDescriptorSet == nullptr)
-    {
-        return;
-    }
-
-    if (environmentCubeView == nullptr ||
-        environmentCubeSampler == nullptr)
-    {
-        return;
-    }
-
-    commandBuffer.bindPipeline(
-        vk::PipelineBindPoint::eGraphics,
-        scenePipelines.skybox());
-
-    std::array<vk::DescriptorSet, 2> sets = {
-     *frameDescriptorSets[frameResources.currentFrameIndex()],
-     *iblDescriptorSet
-    };
-
-    commandBuffer.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics,
-        scenePipelines.skyboxLayout(),
-        0,
-        sets,
-        {}
-    );
-    
-
-    commandBuffer.draw(3, 1, 0, 0);
-}
 
 
 
-vk::DescriptorImageInfo Renderer::makeImageInfo(
-    vk::Sampler sampler,
-    vk::ImageView view) const
-{
-    return vk::DescriptorImageInfo{}
-        .setSampler(sampler)
-        .setImageView(view)
-        .setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-}
+
 
 
 void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
