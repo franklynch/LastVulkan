@@ -89,7 +89,7 @@
     <ClCompile Include="BufferUtils.cpp" />
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="DescriptorManager.cpp" />
-    <ClCompile Include="EditorPanels.cpp" />
+    <ClCompile Include="EditorUiSystem.cpp" />
     <ClCompile Include="EnvironmentRenderer.cpp" />
     <ClCompile Include="EnvironmentSystem.cpp" />
     <ClCompile Include="EnvironmentUtils.cpp" />
@@ -129,8 +129,8 @@
     <ClInclude Include="BufferUtils.hpp" />
     <ClInclude Include="Camera.hpp" />
     <ClInclude Include="DescriptorManager.hpp" />
-    <ClInclude Include="EditorPanels.hpp" />
     <ClInclude Include="EditorUiState.hpp" />
+    <ClInclude Include="EditorUiSystem.hpp" />
     <ClInclude Include="EnvironmentRenderer.hpp" />
     <ClInclude Include="EnvironmentResources.hpp" />
     <ClInclude Include="EnvironmentSystem.hpp" />

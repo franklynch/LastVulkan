@@ -15,6 +15,8 @@ class FrameResources
 public:
     FrameResources(VulkanContext& vkContext);
 
+    void cleanup();
+
     void createCommandBuffers(uint32_t maxFramesInFlight);
     void createSyncObjects(uint32_t maxFramesInFlight, uint32_t swapchainImageCount);
 

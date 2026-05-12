@@ -339,3 +339,55 @@ void EnvironmentSystem::updateIBLDescriptorSet(
 
     device.updateDescriptorSets(writes, {});
 }
+
+void EnvironmentSystem::cleanup()
+{
+    environment.runtimeBrdfLut.pipeline = nullptr;
+    environment.runtimeBrdfLut.layout = nullptr;
+    environment.runtimeBrdfLut.sampler = nullptr;
+    environment.runtimeBrdfLut.view = nullptr;
+    environment.runtimeBrdfLut.memory = nullptr;
+    environment.runtimeBrdfLut.image = nullptr;
+
+    for (auto& view : environment.runtimeEnvironmentCubeFaces.views)
+    {
+        view = nullptr;
+    }
+
+    environment.runtimeEnvironmentCube.sampler = nullptr;
+    environment.runtimeEnvironmentCube.view = nullptr;
+    environment.runtimeEnvironmentCube.memory = nullptr;
+    environment.runtimeEnvironmentCube.image = nullptr;
+
+    for (auto& mipViews : environment.runtimePrefilteredCubeMipFaceViews)
+    {
+        for (auto& view : mipViews.views)
+        {
+            view = nullptr;
+        }
+    }
+
+    environment.runtimePrefilteredCubeMipFaceViews.clear();
+
+    environment.runtimePrefilteredCube.sampler = nullptr;
+    environment.runtimePrefilteredCube.view = nullptr;
+    environment.runtimePrefilteredCube.memory = nullptr;
+    environment.runtimePrefilteredCube.image = nullptr;
+
+    for (auto& view : environment.runtimeIrradianceCubeFaces.views)
+    {
+        view = nullptr;
+    }
+
+    environment.runtimeIrradianceCube.sampler = nullptr;
+    environment.runtimeIrradianceCube.view = nullptr;
+    environment.runtimeIrradianceCube.memory = nullptr;
+    environment.runtimeIrradianceCube.image = nullptr;
+
+    fallbackBrdfLut.reset();
+
+    fallbackBlackCubeSampler = nullptr;
+    fallbackBlackCubeView = nullptr;
+    fallbackBlackCubeMemory = nullptr;
+    fallbackBlackCubeImage = nullptr;
+}

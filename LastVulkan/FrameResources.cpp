@@ -71,3 +71,15 @@ void FrameResources::cleanupSwapchainDependent()
     m_imagesInFlight.clear();
     m_swapchainImageInitialized.clear();
 }
+
+void FrameResources::cleanup()
+{
+    m_commandBuffers.clear();
+
+    m_presentCompleteSemaphores.clear();
+    m_renderFinishedSemaphores.clear();
+    m_inFlightFences.clear();
+
+    m_imagesInFlight.clear();
+    m_swapchainImageInitialized.clear();
+}

@@ -21,7 +21,7 @@
 
 #include <stb_image.h>
 
-#include "EditorPanels.hpp"
+
 
 
 #include "ShaderUtils.hpp"
@@ -49,6 +49,7 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
     , sceneRenderer(vkContext)
 	, descriptorManager(vkContext)
 	, materialSystem(vkContext, bufferUtils, imageUtils)
+	, editorUi(window, vkContext)
     
 {
     init();
@@ -56,60 +57,18 @@ Renderer::Renderer(Window& window, VulkanContext& vkContext)
 
 Renderer::~Renderer()
 {
-    shutdownImGui();
     vkContext.getDevice().waitIdle();
 
-    environmentSystem.resources().runtimeBrdfLut.pipeline = nullptr;
-    environmentSystem.resources().runtimeBrdfLut.layout = nullptr;
-
-    environmentSystem.resources().runtimeBrdfLut.sampler = nullptr;
-    environmentSystem.resources().runtimeBrdfLut.view = nullptr;
-    environmentSystem.resources().runtimeBrdfLut.memory = nullptr;
-    environmentSystem.resources().runtimeBrdfLut.image = nullptr;
-
-    for (auto& view : environmentSystem.resources().runtimeEnvironmentCubeFaces.views)
-    {
-        view = nullptr;
-    }
-
-    environmentSystem.resources().runtimeEnvironmentCube.sampler = nullptr;
-    environmentSystem.resources().runtimeEnvironmentCube.view = nullptr;
-    environmentSystem.resources().runtimeEnvironmentCube.memory = nullptr;
-    environmentSystem.resources().runtimeEnvironmentCube.image = nullptr;
-
-    for (auto& mipViews : environmentSystem.resources().runtimePrefilteredCubeMipFaceViews)
-    {
-        for (auto& view : mipViews.views)
-        {
-            view = nullptr;
-        }
-    }
-
-    environmentSystem.resources().runtimePrefilteredCubeMipFaceViews.clear();
-
-    environmentSystem.resources().runtimePrefilteredCube.sampler = nullptr;
-    environmentSystem.resources().runtimePrefilteredCube.view = nullptr;
-    environmentSystem.resources().runtimePrefilteredCube.memory = nullptr;
-    environmentSystem.resources().runtimePrefilteredCube.image = nullptr;
-
-   
+    environmentSystem.cleanup();
 
     hdrEnvironmentSampler = nullptr;
     hdrEnvironmentView = nullptr;
     hdrEnvironmentMemory = nullptr;
     hdrEnvironmentImage = nullptr;
 
-    for (auto& view : environmentSystem.resources().runtimeIrradianceCubeFaces.views)
-    {
-        view = nullptr;
-    }
+    editorUi.shutdown();
 
-    environmentSystem.resources().runtimeIrradianceCube.sampler = nullptr;
-    environmentSystem.resources().runtimeIrradianceCube.view = nullptr;
-    environmentSystem.resources().runtimeIrradianceCube.memory = nullptr;
-    environmentSystem.resources().runtimeIrradianceCube.image = nullptr;
-
-    cleanupDescriptorResources();
+    frameResources.cleanup();
 }
 
 void Renderer::init()
@@ -222,15 +181,6 @@ void Renderer::init()
 
     
 
-    
-
-   
-    
-    
-    
-
-    
-
     createEnvironmentCubemap({
     "assets/skybox/right.jpg",
     "assets/skybox/left.jpg",
@@ -264,8 +214,10 @@ void Renderer::init()
         *environmentCubeSampler,
         *environmentCubeView);
 
-   
-    initImGui();
+    editorUi.init(
+        swapchain.format(),
+        swapchain.imageCount());
+    
 
 }
 
@@ -333,11 +285,6 @@ void Renderer::recreateSwapChain()
 }
 
 
-
-
-
-
-
 void Renderer::clearSceneResources()
 {
    
@@ -352,11 +299,6 @@ void Renderer::setupCameraDefaults()
     camera.setFov(cameraFov);
     camera.setNearFar(cameraNear, cameraFar);
 }
-
-
-
-
-
 
 void Renderer::createUniformBuffers()
 {
@@ -557,9 +499,19 @@ void Renderer::drawFrame()
 
     frameResources.imageInFlight(imageIndex) = *frameResources.inFlightFence(currentFrame);
 
-  //  beginImGuiFrame();
-    updateCameraControls();
-  //  buildImGui();
+    if (editorUi.isInitialized())
+    {
+        editorUi.beginFrame();
+
+        editorUi.buildMinimal(
+            frameTimeMs,
+            fps);
+
+        updateCameraControls();
+    }
+
+   
+
 
     updateUniformBuffer(currentFrame);
 
@@ -753,7 +705,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         &descriptorManager.materialDescriptorSets();
 
     renderContext.wireframeEnabled =
-        uiState.wireframeRequested;
+        editorUi.state().wireframeRequested;
 
     renderContext.animateModel =
         animateModel;
@@ -789,21 +741,37 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         renderContext);
 
 
-  //  renderImGui(*commandBuffer);
+
 
     commandBuffer.endRendering();
 
 
     postProcessRenderer->executeBloomChain(commandBuffer);
 
-    // Final post-process pass
+    
 
-    postProcessRenderer->executeFinalComposite(
-        commandBuffer,
+    // Final post-process pass
+    TransitionUtils::transitionToColorAttachment(
+        cmd,
         swapchain.images()[imageIndex],
-        *swapchain.imageViews()[imageIndex],
         swapChainOldLayout);
 
+    postProcessRenderer->beginFinalCompositePass(
+        commandBuffer,
+        *swapchain.imageViews()[imageIndex]);
+
+    postProcessRenderer->recordFinalComposite(commandBuffer);
+
+    if (editorUi.isInitialized())
+    {
+        editorUi.render(*commandBuffer);
+    }
+
+    postProcessRenderer->endFinalCompositePass(commandBuffer);
+
+    TransitionUtils::transitionToPresent(
+        cmd,
+        swapchain.images()[imageIndex]);
 
     frameResources.markImageInitialized(imageIndex);
 
@@ -1069,14 +1037,7 @@ void Renderer::createEnvironmentCubemap(const std::array<std::string, 6>& facePa
     environmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
 }
 
-void Renderer::cleanupDescriptorResources()
-{
-    
-    
-    
 
-    
-}
 
 
 void Renderer::updateCameraControls()
@@ -1431,289 +1392,13 @@ void Renderer::resetIblEnergyCalibration()
 
 
 
-void Renderer::initImGui()
-{
-    auto& device = vkContext.getDevice();
-    auto& physicalDevice = vkContext.getPhysicalDevice();
-    auto& queue = vkContext.getQueue();
-
-    std::array<vk::DescriptorPoolSize, 11> poolSizes = {
-        vk::DescriptorPoolSize(vk::DescriptorType::eSampler, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eSampledImage, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eStorageImage, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eUniformTexelBuffer, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eStorageTexelBuffer, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eUniformBufferDynamic, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eStorageBufferDynamic, 1000),
-        vk::DescriptorPoolSize(vk::DescriptorType::eInputAttachment, 1000)
-    };
-
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo
-        .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
-        .setMaxSets(1000 * static_cast<uint32_t>(poolSizes.size()))
-        .setPoolSizes(poolSizes);
-
-    imguiDescriptorPool = vk::raii::DescriptorPool(device, poolInfo);
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui::StyleColorsDark();
-
-    ImGui_ImplGlfw_InitForVulkan(window.getHandle(), true);
-
-    ImGui_ImplVulkan_InitInfo initInfo{};
-    initInfo.ApiVersion = VK_API_VERSION_1_3;
-    initInfo.Instance = *vkContext.getInstance();
-    initInfo.PhysicalDevice = *physicalDevice;
-    initInfo.Device = *device;
-    initInfo.QueueFamily = vkContext.getQueueIndex();
-    initInfo.Queue = *queue;
-    initInfo.DescriptorPool = *imguiDescriptorPool;
-    initInfo.MinImageCount = static_cast<uint32_t>(swapchain.images().size());
-    initInfo.ImageCount = static_cast<uint32_t>(swapchain.images().size());
-    initInfo.UseDynamicRendering = true;
-    initInfo.CheckVkResultFn = nullptr;
-
-    VkFormat colorFormat =
-        static_cast<VkFormat>(swapchain.surfaceFormat().format);
-
-    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-
-    
-
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo = {};
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &colorFormat;
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.depthAttachmentFormat =
-        VK_FORMAT_UNDEFINED;
-    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.stencilAttachmentFormat =
-        VK_FORMAT_UNDEFINED;
-
-
-    ImGui_ImplVulkan_Init(&initInfo);
-
-    imguiInitialized = true;
-}
-
-void Renderer::shutdownImGui()
-{
-    if (!imguiInitialized)
-        return;
-
-    vkContext.getDevice().waitIdle();
-
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-
-    imguiDescriptorPool = nullptr;
-    imguiInitialized = false;
-}
-
-void Renderer::beginImGuiFrame()
-{
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-}
-
 
 void Renderer::buildImGui()
 {
-    if (uiState.showDebugPanel)
-    {
-        ImGui::Begin("Rendering Debug", &uiState.showDebugPanel);
-
-        uint32_t totalVertexCount = 0;
-        uint32_t totalIndexCount = 0;
-
-        for (const auto& gpuMesh : gpuMeshes)
-        {
-            if (!gpuMesh)
-                continue;
-
-            totalVertexCount += gpuMesh->getVertexCount();
-            totalIndexCount += gpuMesh->getIndexCount();
-        }
-
-
-
-
-        float maxPrefilterMip =
-            prefilterRenderer
-            ? static_cast<float>(prefilterRenderer->getDebugRuntimePrefilteredMipLevels() - 1)
-            : 0.0f;
-
-        
-
-        EditorPanels::drawLookDevPanel(
-            lightDirection,
-            lightColor,
-            lightIntensity,
-            ambientColor,
-            ambientIntensity,
-            uiState.debugViewMode,
-
-            showSkybox,
-            enableIBL,
-            debugReflectionOnly,
-            debugSkyboxFaces,
-            skyboxExposure,
-            skyboxLod,
-            iblIntensity,
-            diffuseIBLIntensity,
-            specularIBLIntensity,
-
-            postProcessRenderer->toneMappingEnabled,
-            postProcessRenderer->gammaEnabled,
-            postProcessRenderer->postExposure,
-
-            postProcessRenderer->bloomEnabled,
-            postProcessRenderer->bloomThreshold,
-            postProcessRenderer->bloomKnee,
-            postProcessRenderer->bloomStrength,
-
-            postProcessRenderer->bloomIntensity,
-            postProcessRenderer->bloomUpsampleRadius,
-
-            environmentRotationDegrees,
-            rotateSkybox,
-            rotateIBLLighting,
-
-            debugForceSpecularMip,
-            debugSpecularMip,
-            roughnessMipScale,
-            roughnessMipBias,
-            maxPrefilterMip,
-
-            [this]() { resetEnvironmentSettings(); },
-            [this]() { resetIblEnergyCalibration(); }
-            
-          
-            );
-
-        EditorPanels::drawUboInspector(lastUbo);
-
-        Renderable* selectedRenderable = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
-
-        Material* selectedMaterial = getSelectedRenderableMaterial();
-
-        const Texture2D* baseColorTexture =
-            selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
-
-        const Texture2D* normalTexture =
-            selectedMaterial ? selectedMaterial->getNormalTexture() : nullptr;
-
-        const Texture2D* metallicRoughnessTexture =
-            selectedMaterial ? selectedMaterial->getMetallicRoughnessTexture() : nullptr;
-
-
-        //   Material* selectedMaterial = getSelectedRenderableMaterial();
-        int selectedMaterialIndex = selectedMaterial ? getMaterialIndex(*selectedMaterial) : -1;
-        const Texture2D* selectedTexture = selectedMaterial ? &selectedMaterial->getTexture() : nullptr;
-
-
-        EditorPanels::drawSelectedMaterialPanel(
-            selectedRenderable,
-            selectedMaterial,
-            selectedTexture,
-            selectedMaterialIndex);
-
-
-        EditorPanels::drawVerificationPanel(
-            scene,
-            uiState,
-            currentModelPath,
-            selectedRenderable,
-            selectedMaterial,
-            baseColorTexture,
-            normalTexture,
-            metallicRoughnessTexture,
-            lightDirection,
-            lightColor,
-            ambientColor);
-
-
-     /*   EditorPanels::drawRendererPanel(
-            vkContext,
-            swapchain.extent(),
-            swapchain.imageCount(),
-            materialSystem.materials().empty() ? nullptr : &materialSystem.defaultMaterial(),
-            vkContext.getMsaaSamples(),
-            gpuMeshes.size(),
-            totalVertexCount,
-            totalIndexCount,
-            frameTimeMs,
-            fps,
-            scene);
-
-            */
-
-
-        EditorPanels::drawAnimationPanel(
-            animateModel,
-            rotationSpeed);
-
-        EditorPanels::drawCameraPanel(
-            camera,
-            cameraRadius,
-            cameraYaw,
-            cameraPitch,
-            cameraFov,
-            cameraNear,
-            cameraFar,
-            mouseOrbitSensitivity,
-            mousePanSensitivity,
-            mouseZoomSensitivity,
-            minCameraRadius,
-            maxCameraRadius);
-
-        EditorPanels::drawDebugPanel(
-            uiState,
-            isWireframeSupported());
-
-        
-
-        ImGui::End();
-    }
-
-    if (uiState.showDemoWindow)
-    {
-        ImGui::ShowDemoWindow(&uiState.showDemoWindow);
-    }
+    
 }
  
 
 
-void Renderer::renderImGui(vk::CommandBuffer commandBuffer)
-{
-    ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
-}
 
-void Renderer::buildOverlay()
-{
-    constexpr ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoDecoration |
-        ImGuiWindowFlags_AlwaysAutoResize |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoFocusOnAppearing |
-        ImGuiWindowFlags_NoNav;
 
-    ImGui::SetNextWindowBgAlpha(0.35f);
-    ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
-
-    if (ImGui::Begin("Overlay", nullptr, flags))
-    {
-        ImGui::Text("FPS: %.1f", fps);
-        ImGui::Text("Frame: %.2f ms", frameTimeMs);
-        ImGui::Text("MSAA: %d", static_cast<int>(vkContext.getMsaaSamples()));
-    }
-    ImGui::End();
-}

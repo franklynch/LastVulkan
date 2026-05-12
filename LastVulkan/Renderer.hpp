@@ -37,10 +37,12 @@ import vulkan_hpp;
 
 
 
+
 #include "EnvironmentSystem.hpp"  
 #include "SceneRenderer.hpp"
 #include "DescriptorManager.hpp"
 #include "MaterialSystem.hpp"
+#include "EditorUiSystem.hpp"
 
 
 
@@ -82,19 +84,13 @@ public:
 
     void createUniformBuffers();
     
-    
-    
-    
-    void initImGui();
-    void shutdownImGui();
-    void beginImGuiFrame();
     void buildImGui();
-    void renderImGui(vk::CommandBuffer commandBuffer);
-    void buildOverlay();
+    
+    
 
     void focusSelectedRenderable();
     void resetDefaultSceneLayout();
-    void cleanupDescriptorResources();
+    
     void updateCameraControls();
 
     
@@ -123,6 +119,7 @@ private:
     SceneRenderer           sceneRenderer;
     DescriptorManager       descriptorManager;
     MaterialSystem          materialSystem;
+    EditorUiSystem          editorUi;
     
 
     EditorUiState           uiState;
@@ -160,11 +157,6 @@ private:
 
 
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
-
-
-
-    
-    
 
 
     glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;
@@ -314,16 +306,5 @@ private:
     float frameTimeMs = 0.0f;
     float fps = 0.0f;
 
-
-
-
-
-
-    
-    
- 
-    
-    
-  
 
 };
