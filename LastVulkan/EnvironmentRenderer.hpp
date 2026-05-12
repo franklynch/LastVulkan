@@ -17,6 +17,8 @@ public:
         const vk::raii::Sampler& hdrSampler,
         const vk::raii::ImageView& hdrView);
 
+    void render(EnvironmentResources& environment);
+
 private:
     void createResources(EnvironmentResources& environment);
     void createFaceViews(EnvironmentResources& environment);
@@ -24,7 +26,7 @@ private:
     void updateDescriptorSet(EnvironmentResources& environment, const vk::raii::Sampler& hdrSampler, const vk::raii::ImageView& hdrView);
 
     void createPipeline();
-    void render(EnvironmentResources& environment);
+    
 
 private:
     VulkanContext& vkContext;

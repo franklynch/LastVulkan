@@ -8,6 +8,11 @@
 #include "ImageUtils.hpp"
 #include "Texture2D.hpp"
 
+#include "BrdfLutRenderer.hpp"
+#include "EnvironmentRenderer.hpp"
+#include "IrradianceRenderer.hpp"
+#include "PrefilterRenderer.hpp"
+
 class EnvironmentSystem
 {
 public:
@@ -39,13 +44,46 @@ public:
         return *fallbackBlackCubeView;
     }
 
- 
+    void createHdrEnvironmentTexture(const std::string& path);
+
+    vk::raii::Sampler& getHdrEnvironmentSampler()
+    {
+        return hdrEnvironmentSampler;
+    }
+
+    vk::raii::ImageView& getHdrEnvironmentView()
+    {
+        return hdrEnvironmentView;
+    }
+
+    const vk::raii::Sampler& getHdrEnvironmentSampler() const
+    {
+        return hdrEnvironmentSampler;
+    }
+
+    const vk::raii::ImageView& getHdrEnvironmentView() const
+    {
+        return hdrEnvironmentView;
+    }
+
+    void initRenderers();
+
+    void generateRuntimeEnvironmentCubemap();
+    void generateRuntimeIrradianceCubemap();
+    void generateRuntimePrefilteredCubemap();
+
+    void loadHdrEnvironment(const std::string& path,
+                            vk::raii::DescriptorSet& iblDescriptorSet,
+                            vk::Sampler fallbackEnvironmentSampler,
+                            vk::ImageView fallbackEnvironmentView);
 
 
     void updateIBLDescriptorSet(
         vk::raii::DescriptorSet& iblDescriptorSet,
         vk::Sampler fallbackEnvironmentSampler,
         vk::ImageView fallbackEnvironmentView);
+
+    uint32_t getDebugRuntimePrefilteredMipLevels() const;
 
 private:
     VulkanContext& vkContext;
@@ -67,6 +105,24 @@ private:
     vk::DescriptorImageInfo makeImageInfo(
         vk::Sampler sampler,
         vk::ImageView view) const;
+
+
+    vk::raii::Image hdrEnvironmentImage{ nullptr };
+    vk::raii::DeviceMemory hdrEnvironmentMemory{ nullptr };
+    vk::raii::ImageView hdrEnvironmentView{ nullptr };
+    vk::raii::Sampler hdrEnvironmentSampler{ nullptr };
+
+    uint32_t hdrEnvironmentWidth = 0;
+    uint32_t hdrEnvironmentHeight = 0;
+
+    std::unique_ptr<BrdfLutRenderer>        brdfLutRenderer;
+    std::unique_ptr<EnvironmentRenderer>    environmentRenderer;
+    std::unique_ptr<IrradianceRenderer>     irradianceRenderer;
+    std::unique_ptr<PrefilterRenderer>      prefilterRenderer;
+
+    
+
+    
 
 
 };

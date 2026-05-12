@@ -19,6 +19,7 @@
 #include <array>
 
 
+
 #include <stb_image.h>
 
 
@@ -61,10 +62,7 @@ Renderer::~Renderer()
 
     environmentSystem.cleanup();
 
-    hdrEnvironmentSampler = nullptr;
-    hdrEnvironmentView = nullptr;
-    hdrEnvironmentMemory = nullptr;
-    hdrEnvironmentImage = nullptr;
+   
 
     editorUi.shutdown();
 
@@ -168,14 +166,17 @@ void Renderer::init()
    
     resetEnvironmentSettings();
 
-    brdfLutRenderer = std::make_unique<BrdfLutRenderer>(vkContext, bufferUtils);
-
-    brdfLutRenderer->init(environmentSystem.resources());
+  
+    environmentSystem.loadHdrEnvironment(
+        "assets/hdr/citrus_orchard_road_puresky_4k.hdr",
+        descriptorManager.iblDescriptorSet(),
+        *environmentCubeSampler,
+        *environmentCubeView);
 
     environmentSystem.createFallbackResources();
     
 
-    uiState.selectedRenderableIndex = scene.empty() ? -1 : 0;
+    
 
    
 
@@ -191,28 +192,13 @@ void Renderer::init()
 
     // createHdrEnvironmentTexture("assets/hdr/studio.hdr");
 
-    createHdrEnvironmentTexture("assets/hdr/citrus_orchard_road_puresky_4k.hdr");
+   
 
     
     
-    environmentRenderer = std::make_unique<EnvironmentRenderer>(vkContext, bufferUtils);
-    environmentRenderer->init(
-        environmentSystem.resources(),
-        hdrEnvironmentSampler,
-        hdrEnvironmentView);
-    
+   
 
-    irradianceRenderer = std::make_unique<IrradianceRenderer>(vkContext, bufferUtils);
-    irradianceRenderer->init(environmentSystem.resources());
-    
-    prefilterRenderer = std::make_unique<PrefilterRenderer>(vkContext, bufferUtils);
-    prefilterRenderer->init(environmentSystem.resources());
-
-
-    environmentSystem.updateIBLDescriptorSet(
-        descriptorManager.iblDescriptorSet(),
-        *environmentCubeSampler,
-        *environmentCubeView);
+   
 
     editorUi.init(
         swapchain.format(),
@@ -377,12 +363,10 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         0.0f
     );
 
-    ubo.debugParams = glm::ivec4(uiState.debugViewMode, 0, 0, 0);
+//    ubo.debugParams = glm::ivec4(uiState.debugViewMode, 0, 0, 0);
 
     const uint32_t mipLevels =
-        prefilterRenderer
-        ? prefilterRenderer->getDebugRuntimePrefilteredMipLevels()
-        : 1;
+        environmentSystem.getDebugRuntimePrefilteredMipLevels();
 
     float maxPrefilterMip =
         mipLevels > 0
@@ -1083,16 +1067,7 @@ void Renderer::updateCameraControls()
 }
 
 
-Material* Renderer::getSelectedRenderableMaterial()
-{
-    Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
-    if (!selected)
-    {
-        return nullptr;
-    }
 
-    return &selected->getMaterial();
-}
 
 
 glm::vec3 Renderer::getRenderableWorldPosition(const Renderable& renderable) const
@@ -1117,7 +1092,7 @@ glm::vec3 Renderer::computeSceneCenter() const
     return sum / static_cast<float>(scene.size());
 }
 
-void Renderer::focusSelectedRenderable()
+ /* void Renderer::focusSelectedRenderable()
 {
     Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
 
@@ -1127,29 +1102,10 @@ void Renderer::focusSelectedRenderable()
     }
 
     camera.setTarget(getRenderableWorldPosition(*selected));
-}
+} */
 
 
-int Renderer::getMaterialIndex(const Material& material) const
-{
-    auto it = std::find_if(
-        materialSystem.materials().begin(),
-        materialSystem.materials().end(),
-        [&](const std::unique_ptr<Material>& candidate)
-        {
-            return candidate.get() == &material;
-        });
 
-    if (it == materialSystem.materials().end())
-    {
-        return -1;
-    }
-
-    return static_cast<int>(
-        std::distance(
-            materialSystem.materials().begin(),
-            it));
-}
 
 bool Renderer::isWireframeSupported() const
 {
@@ -1179,200 +1135,6 @@ void Renderer::resetEnvironmentSettings()
     rotateIBLLighting = true;
 }
 
-void Renderer::createHdrEnvironmentTexture(const std::string& path)
-{
-    int width = 0;
-    int height = 0;
-    int channels = 0;
-
-    float* pixels = stbi_loadf(path.c_str(), &width, &height, &channels, 4);
-
-    if (!pixels)
-    {
-        throw std::runtime_error("Failed to load HDR environment: " + path);
-    }
-
-    hdrEnvironmentWidth = static_cast<uint32_t>(width);
-    hdrEnvironmentHeight = static_cast<uint32_t>(height);
-
-    const vk::DeviceSize imageSize =
-        static_cast<vk::DeviceSize>(width) *
-        static_cast<vk::DeviceSize>(height) *
-        4 *
-        sizeof(float);
-
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
-
-    bufferUtils.createBuffer(
-        imageSize,
-        vk::BufferUsageFlagBits::eTransferSrc,
-        vk::MemoryPropertyFlagBits::eHostVisible |
-        vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory);
-
-    {
-        void* mapped = stagingMemory.mapMemory(0, imageSize);
-        std::memcpy(mapped, pixels, static_cast<size_t>(imageSize));
-        stagingMemory.unmapMemory();
-    }
-
-    stbi_image_free(pixels);
-
-    auto& device = vkContext.getDevice();
-
-    const vk::Format hdrFormat = vk::Format::eR32G32B32A32Sfloat;
-
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo
-        .setImageType(vk::ImageType::e2D)
-        .setFormat(hdrFormat)
-        .setExtent(vk::Extent3D{
-            hdrEnvironmentWidth,
-            hdrEnvironmentHeight,
-            1 })
-            .setMipLevels(1)
-        .setArrayLayers(1)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setUsage(
-            vk::ImageUsageFlagBits::eTransferDst |
-            vk::ImageUsageFlagBits::eSampled)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined);
-
-    hdrEnvironmentImage = vk::raii::Image(device, imageInfo);
-
-    vk::MemoryRequirements memRequirements =
-        hdrEnvironmentImage.getMemoryRequirements();
-
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memRequirements.size)
-        .setMemoryTypeIndex(
-            bufferUtils.findMemoryType(
-                memRequirements.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal));
-
-    hdrEnvironmentMemory = vk::raii::DeviceMemory(device, allocInfo);
-    hdrEnvironmentImage.bindMemory(*hdrEnvironmentMemory, 0);
-
-    auto cmd = bufferUtils.beginSingleTimeCommands();
-
-    vk::ImageMemoryBarrier toTransfer{};
-    toTransfer
-        .setOldLayout(vk::ImageLayout::eUndefined)
-        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*hdrEnvironmentImage)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1))
-        .setSrcAccessMask({})
-        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTopOfPipe,
-        vk::PipelineStageFlagBits::eTransfer,
-        {},
-        nullptr,
-        nullptr,
-        toTransfer);
-
-    vk::BufferImageCopy copyRegion{};
-    copyRegion
-        .setBufferOffset(0)
-        .setBufferRowLength(0)
-        .setBufferImageHeight(0)
-        .setImageSubresource(
-            vk::ImageSubresourceLayers{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setMipLevel(0)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1))
-        .setImageOffset(vk::Offset3D{ 0, 0, 0 })
-        .setImageExtent(vk::Extent3D{
-            hdrEnvironmentWidth,
-            hdrEnvironmentHeight,
-            1 });
-
-    cmd.copyBufferToImage(
-        *stagingBuffer,
-        *hdrEnvironmentImage,
-        vk::ImageLayout::eTransferDstOptimal,
-        copyRegion);
-
-    vk::ImageMemoryBarrier toShaderRead{};
-    toShaderRead
-        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-        .setImage(*hdrEnvironmentImage)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1))
-        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
-        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
-
-    cmd.pipelineBarrier(
-        vk::PipelineStageFlagBits::eTransfer,
-        vk::PipelineStageFlagBits::eFragmentShader,
-        {},
-        nullptr,
-        nullptr,
-        toShaderRead);
-
-    bufferUtils.endSingleTimeCommands(cmd);
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo
-        .setImage(*hdrEnvironmentImage)
-        .setViewType(vk::ImageViewType::e2D)
-        .setFormat(hdrFormat)
-        .setSubresourceRange(
-            vk::ImageSubresourceRange{}
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setBaseMipLevel(0)
-            .setLevelCount(1)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1));
-
-    hdrEnvironmentView = vk::raii::ImageView(device, viewInfo);
-
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear)
-        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
-        .setAddressModeU(vk::SamplerAddressMode::eRepeat)
-        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
-        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
-        .setMipLodBias(0.0f)
-        .setAnisotropyEnable(VK_FALSE)
-        .setCompareEnable(VK_FALSE)
-        .setMinLod(0.0f)
-        .setMaxLod(0.0f)
-        .setBorderColor(vk::BorderColor::eFloatOpaqueWhite)
-        .setUnnormalizedCoordinates(VK_FALSE);
-
-    hdrEnvironmentSampler = vk::raii::Sampler(device, samplerInfo);
-
-    std::cout << "Loaded HDR environment: "
-        << path << " "
-        << hdrEnvironmentWidth << "x"
-        << hdrEnvironmentHeight << "\n";
-}
 
 
 void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
@@ -1393,11 +1155,7 @@ void Renderer::resetIblEnergyCalibration()
 
 
 
-void Renderer::buildImGui()
-{
-    
-}
- 
+
 
 
 

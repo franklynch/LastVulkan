@@ -26,14 +26,14 @@ import vulkan_hpp;
 #include "ImageUtils.hpp"
 #include "MeshData.hpp"
 
-#include "GltfLoader.hpp"
-#include "Texture2D.hpp"
+
+
 #include "GpuMesh.hpp"
-#include "Material.hpp"
+
 #include "Renderable.hpp"
 #include "Camera.hpp"
 #include "Scene.hpp"
-#include "EditorUiState.hpp"
+
 
 
 
@@ -84,11 +84,11 @@ public:
 
     void createUniformBuffers();
     
-    void buildImGui();
+    
     
     
 
-    void focusSelectedRenderable();
+   // void focusSelectedRenderable();
     void resetDefaultSceneLayout();
     
     void updateCameraControls();
@@ -122,7 +122,7 @@ private:
     EditorUiSystem          editorUi;
     
 
-    EditorUiState           uiState;
+    
     Camera                  camera;
     UniformBufferObject     lastUbo;
     Scene                   scene;
@@ -135,19 +135,15 @@ private:
     vk::DescriptorSetLayout externalBloomBlurDescriptorSetLayout{};
     vk::Sampler externalPostProcessSampler{};
         
-    bool imguiInitialized = false;
-    vk::raii::DescriptorPool imguiDescriptorPool = nullptr;
+    
+    
 
     std::string currentModelPath;
 
-    std::unique_ptr<BrdfLutRenderer> brdfLutRenderer;
-    std::unique_ptr<EnvironmentRenderer> environmentRenderer;
-    std::unique_ptr<IrradianceRenderer> irradianceRenderer;
-    std::unique_ptr<PrefilterRenderer> prefilterRenderer;
 
 
-    Material* getSelectedRenderableMaterial();
-    int getMaterialIndex(const Material& material) const;
+
+    
 
 
     bool isWireframeSupported() const;
@@ -162,15 +158,6 @@ private:
     glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;
 
    
-
-    
-    vk::raii::DescriptorSetLayout   frameDescriptorSetLayout = nullptr;
-    vk::raii::DescriptorSetLayout   materialDescriptorSetLayout = nullptr;
-
-
-    
-    
-
 
     std::vector<vk::raii::Buffer> uniformBuffers;
     std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
@@ -189,13 +176,6 @@ private:
     vk::raii::ImageView environmentCubeView{ nullptr };
     vk::raii::Sampler environmentCubeSampler{ nullptr };
 
-    
-    
-
-
-    // IBL descriptor set
-    vk::raii::DescriptorSetLayout iblDescriptorSetLayout{ nullptr };
-    
 
 
     struct IblCalibrationPreset
@@ -240,17 +220,7 @@ private:
     float diffuseIBLIntensity = 0.2f;
     float specularIBLIntensity = 1.2f;
 
-    std::unique_ptr<Texture2D> brdfLutTexture;
-
-    vk::raii::Image irradianceCubeImage{ nullptr };
-    vk::raii::DeviceMemory irradianceCubeMemory{ nullptr };
-    vk::raii::ImageView irradianceCubeView{ nullptr };
-    vk::raii::Sampler irradianceCubeSampler{ nullptr };
-
-    vk::raii::Image prefilteredCubeImage{ nullptr };
-    vk::raii::DeviceMemory prefilteredCubeMemory{ nullptr };
-    vk::raii::ImageView prefilteredCubeView{ nullptr };
-    vk::raii::Sampler prefilteredCubeSampler{ nullptr };
+  
 
 
   
@@ -261,15 +231,6 @@ private:
 
     
 
-    vk::raii::Image hdrEnvironmentImage{ nullptr };
-    vk::raii::DeviceMemory hdrEnvironmentMemory{ nullptr };
-    vk::raii::ImageView hdrEnvironmentView{ nullptr };
-    vk::raii::Sampler hdrEnvironmentSampler{ nullptr };
-
-    uint32_t hdrEnvironmentWidth = 0;
-    uint32_t hdrEnvironmentHeight = 0;
-
-    void createHdrEnvironmentTexture(const std::string& path);
 
     float rotationSpeed = 10.0f;
 

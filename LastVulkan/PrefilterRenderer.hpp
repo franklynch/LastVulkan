@@ -19,6 +19,8 @@ public:
         return runtimePrefilteredMipLevels;
     }
 
+    void render(EnvironmentResources& environment);
+
 private:
     void createResources(EnvironmentResources& environment);
     void createFaceViews(EnvironmentResources& environment);
@@ -26,7 +28,7 @@ private:
     void createDescriptorResources();
     void updateDescriptorSet(EnvironmentResources& environment);
     void createPipeline();
-    void render(EnvironmentResources& environment);
+    
 
     
 
