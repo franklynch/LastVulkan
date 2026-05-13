@@ -178,10 +178,6 @@ void Renderer::init()
 
     
 
-   
-
-    
-
     createEnvironmentCubemap({
     "assets/skybox/right.jpg",
     "assets/skybox/left.jpg",
@@ -399,34 +395,39 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
 };
 
 
-
-void Renderer::drawFrame()
+void Renderer::updateFrameTiming()
 {
     static auto lastFrameTime = std::chrono::high_resolution_clock::now();
     auto now = std::chrono::high_resolution_clock::now();
     frameTimeMs = std::chrono::duration<float, std::milli>(now - lastFrameTime).count();
     lastFrameTime = now;
     fps = frameTimeMs > 0.0f ? 1000.0f / frameTimeMs : 0.0f;
+}
 
-    auto& device = vkContext.getDevice();
-    auto& queue = vkContext.getQueue();
-
-    uint32_t currentFrame = frameResources.currentFrameIndex();
-
-    vk::Result waitResult =
-        device.waitForFences(*frameResources.inFlightFence(currentFrame), VK_TRUE, UINT64_MAX);
-
-    if (waitResult != vk::Result::eSuccess)
+void Renderer::updateEditorUiFrame()
+{
+    if (editorUi.isInitialized())
     {
-        throw std::runtime_error("failed waiting for in-flight fence");
-    }
+        editorUi.beginFrame();
 
+        editorUi.buildMinimal(
+            frameTimeMs,
+            fps);
+
+        updateCameraControls();
+    }
+}
+
+Renderer::AcquiredImage Renderer::acquireSwapchainImage(
+    uint32_t currentFrame)
+{
     uint32_t imageIndex = 0;
     vk::Result result{};
 
     try
     {
-        constexpr uint64_t acquireTimeoutNs = 1'000'000'000;
+        constexpr uint64_t acquireTimeoutNs =
+            1'000'000'000;
 
         auto acquireResult =
             swapchain.handle().acquireNextImage(
@@ -441,31 +442,45 @@ void Renderer::drawFrame()
     {
         window.resetResizedFlag();
         recreateSwapChain();
-        return;
+        return {};
     }
 
     if (result == vk::Result::eTimeout)
     {
-        return;
+        return {};
     }
 
     if (result == vk::Result::eErrorOutOfDateKHR)
     {
         window.resetResizedFlag();
         recreateSwapChain();
-        return;
+        return {};
     }
 
     if (result != vk::Result::eSuccess &&
         result != vk::Result::eSuboptimalKHR)
     {
-        throw std::runtime_error("failed to acquire swap chain image!");
+        throw std::runtime_error(
+            "failed to acquire swap chain image!");
     }
 
     if (imageIndex >= swapchain.imageCount())
     {
-        throw std::runtime_error("imageIndex out of range for swapchain images");
+        throw std::runtime_error(
+            "imageIndex out of range for swapchain images");
     }
+
+    return {
+        .imageIndex = imageIndex,
+        .valid = true
+    };
+}
+
+void Renderer::waitForSwapchainImageFence(
+    uint32_t imageIndex,
+    uint32_t currentFrame)
+{
+    auto& device = vkContext.getDevice();
 
     if (frameResources.imageInFlight(imageIndex))
     {
@@ -482,32 +497,15 @@ void Renderer::drawFrame()
     }
 
     frameResources.imageInFlight(imageIndex) = *frameResources.inFlightFence(currentFrame);
+}
 
-    if (editorUi.isInitialized())
-    {
-        editorUi.beginFrame();
+void Renderer::submitCommandBuffer(
+    uint32_t currentFrame,
+    uint32_t imageIndex,
+    vk::raii::CommandBuffer& commandBuffer)
+{
+    auto& queue = vkContext.getQueue();
 
-        editorUi.buildMinimal(
-            frameTimeMs,
-            fps);
-
-        updateCameraControls();
-    }
-
-   
-
-
-    updateUniformBuffer(currentFrame);
-
-    device.resetFences(
-        *frameResources.inFlightFence(currentFrame));
-
-    auto& commandBuffer =
-        frameResources.commandBuffer(currentFrame);
-
-    commandBuffer.reset();
-
-    recordCommandBuffer(imageIndex);
 
     vk::PipelineStageFlags waitStage =
         vk::PipelineStageFlagBits::eColorAttachmentOutput;
@@ -529,9 +527,18 @@ void Renderer::drawFrame()
     }
     catch (const vk::SystemError& err)
     {
-        std::cerr << "Queue submit failed: " << err.what() << std::endl;
+        std::cerr << "Queue submit failed: "
+            << err.what()
+            << std::endl;
         throw;
     }
+
+
+}
+
+bool Renderer::presentFrame(uint32_t imageIndex)
+{
+    auto& queue = vkContext.getQueue();
 
     std::array<vk::SwapchainKHR, 1> swapchains = {
         swapchain.get()
@@ -544,6 +551,8 @@ void Renderer::drawFrame()
         .setSwapchains(swapchains)
         .setPImageIndices(&imageIndex);
 
+    vk::Result result{};
+
     try
     {
         result = queue.presentKHR(presentInfo);
@@ -552,7 +561,7 @@ void Renderer::drawFrame()
     {
         window.resetResizedFlag();
         recreateSwapChain();
-        return;
+        return false;
     }
 
     if (result == vk::Result::eErrorOutOfDateKHR ||
@@ -561,30 +570,75 @@ void Renderer::drawFrame()
     {
         window.resetResizedFlag();
         recreateSwapChain();
-        return;
+        return false;
     }
 
     if (result != vk::Result::eSuccess)
     {
-        throw std::runtime_error("failed to present swap chain image!");
+        throw std::runtime_error(
+            "failed to present swap chain image!");
     }
 
-
-
-    frameResources.advanceFrame(MAX_FRAMES_IN_FLIGHT);
+    return true;
 }
 
-void Renderer::recordCommandBuffer(uint32_t imageIndex) 
+SceneRenderer::SceneRenderContext Renderer::buildSceneRenderContext() const
 {
-    uint32_t currentFrame = frameResources.currentFrameIndex();
+    SceneRenderer::SceneRenderContext renderContext{};
 
-    auto& commandBuffer =
-        frameResources.commandBuffer(currentFrame);
+    renderContext.pipelineLayout =
+        scenePipelines.layout();
 
-    commandBuffer.begin(vk::CommandBufferBeginInfo{});
+    renderContext.solidPipeline =
+        scenePipelines.solid(false);
 
+    renderContext.solidDoubleSidedPipeline =
+        scenePipelines.solid(true);
+
+    renderContext.wireframePipeline =
+        scenePipelines.wireframe(false);
+
+    renderContext.wireframeDoubleSidedPipeline =
+        scenePipelines.wireframe(true);
+
+    renderContext.transparentPipeline =
+        scenePipelines.transparent(false);
+
+    renderContext.transparentDoubleSidedPipeline =
+        scenePipelines.transparent(true);
+
+    renderContext.skyboxPipeline =
+        scenePipelines.skybox();
+
+    renderContext.skyboxPipelineLayout =
+        scenePipelines.skyboxLayout();
+
+    renderContext.frameDescriptorSet =
+        *descriptorManager.frameDescriptorSets()
+        [frameResources.currentFrameIndex()];
+
+    renderContext.iblDescriptorSet =
+        *descriptorManager.iblDescriptorSet();
+
+    renderContext.materialDescriptorSets =
+        &descriptorManager.materialDescriptorSets();
+
+    renderContext.wireframeEnabled =
+        editorUi.state().wireframeRequested;
+
+    renderContext.animateModel =
+        animateModel;
+
+    renderContext.currentAnimationAngle =
+        currentAnimationAngle;
+
+    return renderContext;
+}
+
+void Renderer::recordScenePass(vk::raii::CommandBuffer& commandBuffer, uint32_t imageIndex)
+{
     vk::CommandBuffer cmd = *commandBuffer;
-	const auto extent = swapchain.extent();
+    const auto extent = swapchain.extent();
 
     TransitionUtils::transitionToColorAttachment(
         cmd,
@@ -601,13 +655,13 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         ? vk::ImageLayout::ePresentSrcKHR
         : vk::ImageLayout::eUndefined;
 
-    
+
 
     TransitionUtils::transitionToDepthAttachment(
         cmd,
         *renderTargets.depthImage(),
         renderTargets.depthAspect());
-        
+
 
     vk::ClearValue clearColorValue = vk::ClearColorValue(
         clearColor.r,
@@ -661,54 +715,10 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
 
 
 
-   
 
-    SceneRenderer::SceneRenderContext renderContext{};
-
-    renderContext.pipelineLayout = scenePipelines.layout();
-
-    renderContext.solidPipeline =
-        scenePipelines.solid(false);
-
-    renderContext.solidDoubleSidedPipeline =
-        scenePipelines.solid(true);
-
-    renderContext.wireframePipeline =
-        scenePipelines.wireframe(false);
-
-    renderContext.wireframeDoubleSidedPipeline =
-        scenePipelines.wireframe(true);
-
-    renderContext.frameDescriptorSet =
-        *descriptorManager.frameDescriptorSets()[frameResources.currentFrameIndex()];
-
-    renderContext.iblDescriptorSet =
-        *descriptorManager.iblDescriptorSet();
-
-    renderContext.materialDescriptorSets =
-        &descriptorManager.materialDescriptorSets();
-
-    renderContext.wireframeEnabled =
-        editorUi.state().wireframeRequested;
-
-    renderContext.animateModel =
-        animateModel;
-
-    renderContext.currentAnimationAngle =
-        currentAnimationAngle;
-
-    renderContext.transparentPipeline =
-        scenePipelines.transparent(false);
-
-    renderContext.transparentDoubleSidedPipeline =
-        scenePipelines.transparent(true);
-
-    renderContext.skyboxPipeline =
-        scenePipelines.skybox();
-
-    renderContext.skyboxPipelineLayout =
-        scenePipelines.skyboxLayout();
-
+    auto renderContext =
+        buildSceneRenderContext();
+    
     sceneRenderer.renderSkybox(
         commandBuffer,
         renderContext);
@@ -724,21 +734,30 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
         camera,
         renderContext);
 
-
-
-
     commandBuffer.endRendering();
+}
 
-
+void Renderer::recordBloomPass(
+    vk::raii::CommandBuffer& commandBuffer)
+{
     postProcessRenderer->executeBloomChain(commandBuffer);
+}
 
-    
+void Renderer::recordFinalCompositePass(
+    vk::raii::CommandBuffer& commandBuffer,
+    uint32_t imageIndex)
+{
+    vk::CommandBuffer cmd = *commandBuffer;
 
-    // Final post-process pass
+    vk::ImageLayout swapchainOldLayout =
+        frameResources.imageInitialized(imageIndex)
+        ? vk::ImageLayout::ePresentSrcKHR
+        : vk::ImageLayout::eUndefined;
+
     TransitionUtils::transitionToColorAttachment(
         cmd,
         swapchain.images()[imageIndex],
-        swapChainOldLayout);
+        swapchainOldLayout);
 
     postProcessRenderer->beginFinalCompositePass(
         commandBuffer,
@@ -756,6 +775,91 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex)
     TransitionUtils::transitionToPresent(
         cmd,
         swapchain.images()[imageIndex]);
+}
+
+
+void Renderer::drawFrame()
+{
+    updateFrameTiming();
+
+    auto& device = vkContext.getDevice();
+    auto& queue = vkContext.getQueue();
+
+    uint32_t currentFrame = frameResources.currentFrameIndex();
+
+    vk::Result waitResult =
+        device.waitForFences(*frameResources.inFlightFence(currentFrame), VK_TRUE, UINT64_MAX);
+
+    if (waitResult != vk::Result::eSuccess)
+    {
+        throw std::runtime_error("failed waiting for in-flight fence");
+    }
+    
+   
+    auto acquired =
+        acquireSwapchainImage(currentFrame);
+
+    if (!acquired.valid)
+    {
+        return;
+    }
+
+    uint32_t imageIndex =
+        acquired.imageIndex;
+
+
+    
+
+    waitForSwapchainImageFence(
+        imageIndex,
+        currentFrame);
+
+    updateEditorUiFrame();
+
+    
+    updateUniformBuffer(currentFrame);
+
+    device.resetFences(
+        *frameResources.inFlightFence(currentFrame));
+
+    auto& commandBuffer =
+        frameResources.commandBuffer(currentFrame);
+
+    commandBuffer.reset();
+
+    recordCommandBuffer(imageIndex);
+
+    
+    submitCommandBuffer(
+        currentFrame,
+        imageIndex,
+        commandBuffer);
+
+
+    if (!presentFrame(imageIndex))
+    {
+        return;
+    }
+
+
+
+    frameResources.advanceFrame(MAX_FRAMES_IN_FLIGHT);
+}
+
+void Renderer::recordCommandBuffer(uint32_t imageIndex) 
+{
+    uint32_t currentFrame = frameResources.currentFrameIndex();
+
+    auto& commandBuffer =
+        frameResources.commandBuffer(currentFrame);
+
+    commandBuffer.begin(vk::CommandBufferBeginInfo{});
+
+    recordScenePass(commandBuffer, imageIndex);
+    
+    recordBloomPass(commandBuffer);
+    
+    recordFinalCompositePass(commandBuffer, imageIndex);
 
     frameResources.markImageInitialized(imageIndex);
 

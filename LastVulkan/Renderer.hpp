@@ -78,7 +78,7 @@ public:
     void cleanupSwapChain();
     void recreateSwapChain();
     
-    
+ 
     
     void drawFrame();
 
@@ -141,7 +141,41 @@ private:
     std::string currentModelPath;
 
 
+    struct AcquiredImage
+    {
+        uint32_t imageIndex = 0;
+        bool valid = false;
+    };
 
+
+    AcquiredImage acquireSwapchainImage(uint32_t currentFrame);
+
+    void updateFrameTiming();
+    void updateEditorUiFrame();
+
+    void waitForSwapchainImageFence(
+        uint32_t imageIndex,
+        uint32_t currentFrame);
+
+    void submitCommandBuffer(
+        uint32_t currentFrame,
+        uint32_t imageIndex,
+        vk::raii::CommandBuffer& commandBuffer);
+
+    bool presentFrame(uint32_t imageIndex);
+
+    void recordScenePass(
+        vk::raii::CommandBuffer& commandBuffer,
+        uint32_t imageIndex);
+
+    SceneRenderer::SceneRenderContext buildSceneRenderContext() const;
+
+    void recordBloomPass(
+        vk::raii::CommandBuffer& commandBuffer);
+
+    void recordFinalCompositePass(
+        vk::raii::CommandBuffer& commandBuffer,
+        uint32_t imageIndex);
 
     
 
