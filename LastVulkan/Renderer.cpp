@@ -125,22 +125,30 @@ void Renderer::init()
 
     currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
 
+    GltfSceneLoader::LoadContext loadContext{
+             .scene = scene,
+             .gpuMeshes = gpuMeshes,
+
+             .baseColorTextures = materialSystem.baseColorTextures(),
+             .normalTextures = materialSystem.normalTextures(),
+             .metallicRoughnessTextures = materialSystem.metallicRoughnessTextures(),
+             .aoTextures = materialSystem.aoTextures(),
+             .emissiveTextures = materialSystem.emissiveTextures(),
+
+             .materials = materialSystem.materials(),
+
+             .defaultTexture = materialSystem.defaultTexture(),
+             .defaultNormalTexture = materialSystem.defaultNormalTexture(),
+             .defaultMetallicRoughnessTexture = materialSystem.defaultMetallicRoughnessTexture(),
+             .defaultAoTexture = materialSystem.defaultAoTexture(),
+             .defaultEmissiveTexture = materialSystem.defaultEmissiveTexture(),
+
+             .camera = camera
+    };
+
     gltfSceneLoader.load(
         currentModelPath,
-        scene,
-        gpuMeshes,
-        materialSystem.baseColorTextures(),
-        materialSystem.normalTextures(),
-        materialSystem.metallicRoughnessTextures(),
-        materialSystem.aoTextures(),
-        materialSystem.emissiveTextures(),
-        materialSystem.materials(),
-        materialSystem.defaultTexture(),
-        materialSystem.defaultNormalTexture(),
-        materialSystem.defaultMetallicRoughnessTexture(),
-        materialSystem.defaultAoTexture(),
-        materialSystem.defaultEmissiveTexture(),
-        camera);
+        loadContext);
 
     
         
@@ -334,12 +342,14 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         enableIBL ? 1.0f : 0.0f
     );
 
+    const auto& pp =
+        postProcessRenderer->getSettings();
+
     ubo.postProcessParams = glm::vec4(
-        postProcessRenderer->postExposure,
-        postProcessRenderer->toneMappingEnabled ? 1.0f : 0.0f,
-        postProcessRenderer->gammaEnabled ? 1.0f : 0.0f,
-        glm::radians(environmentRotationDegrees)
-    );
+        pp.exposure,
+        pp.toneMappingEnabled ? 1.0f : 0.0f,
+        pp.gammaEnabled ? 1.0f : 0.0f,
+        glm::radians(environmentRotationDegrees));
 
     ubo.environmentControlParams = glm::vec4(
         rotateSkybox ? 1.0f : 0.0f,
@@ -976,6 +986,11 @@ bool Renderer::isWireframeSupported() const
 
 void Renderer::resetEnvironmentSettings()
 {
+    
+    const auto& pp =
+        postProcessRenderer->getSettings();
+
+
     showSkybox = true;
     enableIBL = true;
     debugReflectionOnly = false;
@@ -987,9 +1002,9 @@ void Renderer::resetEnvironmentSettings()
     diffuseIBLIntensity = 1.0f;
     specularIBLIntensity = 1.0f;
 
-    postProcessRenderer->toneMappingEnabled = true;
-    postProcessRenderer->gammaEnabled    = true;
-    postProcessRenderer->postExposure = 1.0f;
+    postProcessRenderer->getSettings().toneMappingEnabled = true;
+    postProcessRenderer->getSettings().gammaEnabled    = true;
+    postProcessRenderer->getSettings().exposure = 1.0f;
 
     environmentRotationDegrees = 0.0f;
     rotateSkybox = true;
@@ -1005,7 +1020,7 @@ void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
     iblIntensity = preset.iblIntensity;
     diffuseIBLIntensity = preset.diffuseIBLIntensity;
     specularIBLIntensity = preset.specularIBLIntensity;
-    postProcessRenderer->postExposure = preset.postExposure;
+    postProcessRenderer->getSettings().exposure = preset.postExposure;
 }
 
 void Renderer::resetIblEnergyCalibration()

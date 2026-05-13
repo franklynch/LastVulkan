@@ -493,8 +493,8 @@ void PostProcessRenderer::drawBloomExtract(vk::raii::CommandBuffer& commandBuffe
         {});
 
     glm::vec4 params(
-        bloomThreshold,
-        bloomKnee,
+        ppsettings.bloomThreshold,
+        ppsettings.bloomKnee,
         0.0f,
         0.0f);
 
@@ -1374,8 +1374,8 @@ void PostProcessRenderer::drawBloomUpsample(
 
 
     glm::vec4 params(
-        bloomIntensity,
-        bloomUpsampleRadius,
+        ppsettings.bloomIntensity,
+        ppsettings.bloomUpsampleRadius,
         1.0f / static_cast<float>(inputWidth),
         1.0f / static_cast<float>(inputHeight));
 
@@ -1856,10 +1856,10 @@ void PostProcessRenderer::executeFinalComposite(
 glm::vec4 PostProcessRenderer::buildFinalCompositeParams() const
 {
     return glm::vec4(
-        postExposure,
-        toneMappingEnabled ? 1.0f : 0.0f,
-        gammaEnabled ? 1.0f : 0.0f,
-        bloomEnabled ? bloomStrength : 0.0f);
+        ppsettings.exposure,
+        ppsettings.toneMappingEnabled ? 1.0f : 0.0f,
+        ppsettings.gammaEnabled ? 1.0f : 0.0f,
+        ppsettings.bloomEnabled ? ppsettings.bloomStrength : 0.0f);
 }
 
 

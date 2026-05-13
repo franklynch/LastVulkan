@@ -13,9 +13,28 @@ import vulkan_hpp;
 #include "BufferUtils.hpp"
 #include "ImageUtils.hpp"
 
+struct PostProcessSettings
+{
+    float bloomThreshold = 1.0f;
+    float bloomKnee = 0.5f;
+
+    float bloomIntensity = 1.0f;
+    float bloomUpsampleRadius = 0.005f;
+
+    float bloomStrength = 0.15f;
+    bool bloomEnabled = true;
+
+    bool toneMappingEnabled = true;
+    bool gammaEnabled = true;
+    float exposure = 1.0f;
+};
+
 class PostProcessRenderer
 {
 public:
+
+   
+
     PostProcessRenderer(
         VulkanContext& vkContext,
         BufferUtils& bufferUtils,
@@ -71,20 +90,17 @@ public:
 
     void recordBloomPyramid(vk::raii::CommandBuffer& commandBuffer);
 
- 
+    PostProcessSettings& getSettings()
+    {
+        return ppsettings;
+    }
 
-    float bloomThreshold = 1.0f;
-    float bloomKnee = 0.5f;
+    const PostProcessSettings& getSettings() const
+    {
+        return ppsettings;
+    }
 
-    float bloomIntensity = 1.0f;
-    float bloomUpsampleRadius = 0.005f;
-
-    float bloomStrength = 0.15f;
-    bool  bloomEnabled = true;
-
-    bool    toneMappingEnabled = true;
-    bool    gammaEnabled = true;
-    float   postExposure = 1.0f;
+   
 
     glm::vec4 buildFinalCompositeParams() const;
 
@@ -173,6 +189,8 @@ private:
         vk::DescriptorSet inputSet,
         glm::vec2 direction);
 
+ 
+
    
 
     struct BloomMipResource
@@ -245,5 +263,7 @@ private:
     vk::raii::Sampler postProcessSampler{ nullptr };
 
     void createPostProcessSampler();
+
+    PostProcessSettings ppsettings{};
 
 };

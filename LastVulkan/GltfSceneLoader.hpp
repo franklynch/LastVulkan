@@ -29,7 +29,27 @@ public:
         std::vector<int> emissive;
     };
 
-   
+    struct LoadContext
+    {
+        Scene& scene;
+        std::vector<std::unique_ptr<GpuMesh>>& gpuMeshes;
+
+        std::vector<std::unique_ptr<Texture2D>>& baseColorTextures;
+        std::vector<std::unique_ptr<Texture2D>>& normalTextures;
+        std::vector<std::unique_ptr<Texture2D>>& metallicRoughnessTextures;
+        std::vector<std::unique_ptr<Texture2D>>& aoTextures;
+        std::vector<std::unique_ptr<Texture2D>>& emissiveTextures;
+
+        std::vector<std::unique_ptr<Material>>& materials;
+
+        Texture2D& defaultTexture;
+        Texture2D& defaultNormalTexture;
+        Texture2D& defaultMetallicRoughnessTexture;
+        Texture2D& defaultAoTexture;
+        Texture2D& defaultEmissiveTexture;
+
+        Camera& camera;
+    };
 
 public:
     GltfSceneLoader(
@@ -37,22 +57,11 @@ public:
         BufferUtils& bufferUtils,
         ImageUtils& imageUtils);
 
+    
+
     void load(
         const std::string& path,
-        Scene& scene,
-        std::vector<std::unique_ptr<GpuMesh>>& gpuMeshes,
-        std::vector<std::unique_ptr<Texture2D>>& textures,
-        std::vector<std::unique_ptr<Texture2D>>& normalTextures,
-        std::vector<std::unique_ptr<Texture2D>>& metallicRoughnessTextures,
-        std::vector<std::unique_ptr<Texture2D>>& aoTextures,
-        std::vector<std::unique_ptr<Texture2D>>& emissiveTextures,
-        std::vector<std::unique_ptr<Material>>& materials,
-        Texture2D& defaultTexture,
-        Texture2D& defaultNormalTexture,
-        Texture2D& defaultMetallicRoughnessTexture,
-        Texture2D& defaultAoTexture,
-        Texture2D& defaultEmissiveTexture,
-        Camera& camera);
+        LoadContext& context);
 
     GltfSceneData loadGltfFile(
         const std::string& path) const;
