@@ -6,8 +6,19 @@ DescriptorManager::DescriptorManager(VulkanContext& vkContext)
 {
 }
 
-void DescriptorManager::cleanupLayouts()
+DescriptorManager::~DescriptorManager()
 {
+    cleanup();
+}
+
+void DescriptorManager::cleanup()
+{
+    m_materialDescriptorSets.clear();
+    m_frameDescriptorSets.clear();
+    m_iblDescriptorSet = nullptr;
+
+    m_descriptorPool = nullptr;
+
     m_iblDescriptorSetLayout = nullptr;
     m_materialDescriptorSetLayout = nullptr;
     m_frameDescriptorSetLayout = nullptr;

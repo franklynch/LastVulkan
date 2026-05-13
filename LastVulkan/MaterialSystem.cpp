@@ -12,20 +12,25 @@ MaterialSystem::MaterialSystem(
 {
 }
 
+MaterialSystem::~MaterialSystem()
+{
+    clear();
+}
+
 void MaterialSystem::clear()
 {
     m_materials.clear();
 
-    m_textures.clear();
-    m_normalTextures.clear();
-    m_metallicRoughnessTextures.clear();
-    m_aoTextures.clear();
     m_emissiveTextures.clear();
+    m_aoTextures.clear();
+    m_metallicRoughnessTextures.clear();
+    m_normalTextures.clear();
+    m_textures.clear();
 
-    m_defaultNormalTexture.reset();
-    m_defaultMetallicRoughnessTexture.reset();
-    m_defaultAoTexture.reset();
     m_defaultEmissiveTexture.reset();
+    m_defaultAoTexture.reset();
+    m_defaultMetallicRoughnessTexture.reset();
+    m_defaultNormalTexture.reset();
 }
 
 void MaterialSystem::createDefaultTextures()

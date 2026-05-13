@@ -15,6 +15,8 @@ class FrameResources
 public:
     FrameResources(VulkanContext& vkContext);
 
+    ~FrameResources();
+
     void cleanup();
 
     void createCommandBuffers(uint32_t maxFramesInFlight);

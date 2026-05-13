@@ -18,12 +18,7 @@
 #include <cstdio>
 #include <array>
 
-
-
 #include <stb_image.h>
-
-
-
 
 #include "ShaderUtils.hpp"
 #include "TransitionUtils.hpp"
@@ -60,13 +55,7 @@ Renderer::~Renderer()
 {
     vkContext.getDevice().waitIdle();
 
-    environmentSystem.cleanup();
-
    
-
-    editorUi.shutdown();
-
-    frameResources.cleanup();
 }
 
 void Renderer::init()
@@ -263,7 +252,6 @@ void Renderer::recreateSwapChain()
     
 }
 
-
 void Renderer::clearSceneResources()
 {
    
@@ -296,7 +284,6 @@ void Renderer::createUniformBuffers()
         uniformBuffersMapped.emplace_back(uniformBuffersMemory[i].mapMemory(0, bufferSize));
     }
 }
-
 
 void Renderer::updateUniformBuffer(uint32_t currentFrame)
 {
@@ -392,7 +379,6 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
 
 
 };
-
 
 void Renderer::updateFrameTiming()
 {
@@ -780,7 +766,6 @@ void Renderer::recordFinalCompositePass(
         swapchain.images()[imageIndex]);
 }
 
-
 void Renderer::drawFrame()
 {
     updateFrameTiming();
@@ -913,11 +898,6 @@ void Renderer::resetDefaultSceneLayout()
     }
 }
 
-
-
-
-
-
 void Renderer::updateCameraControls(const InputState& input)
 {
     if (!input.wantsMouseCapture)
@@ -971,18 +951,10 @@ void Renderer::updateCameraControls(const InputState& input)
     camera.setNearFar(cameraNear, cameraFar);
 }
 
-
-
-
-
-
-
-
 bool Renderer::isWireframeSupported() const
 {
     return vkContext.isFillModeNonSolidEnabled();
 }
-
 
 void Renderer::resetEnvironmentSettings()
 {
@@ -1010,8 +982,6 @@ void Renderer::resetEnvironmentSettings()
     rotateSkybox = true;
     rotateIBLLighting = true;
 }
-
-
 
 void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
 {

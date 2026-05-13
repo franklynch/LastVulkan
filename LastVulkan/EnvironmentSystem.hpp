@@ -19,6 +19,9 @@ class EnvironmentSystem
 {
 public:
     EnvironmentSystem(VulkanContext& vkContext, BufferUtils& bufferUtils, ImageUtils& imageUtils);
+
+    ~EnvironmentSystem();
+    
     
     
 

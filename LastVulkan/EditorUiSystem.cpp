@@ -12,6 +12,11 @@ EditorUiSystem::EditorUiSystem(
 {
 }
 
+EditorUiSystem::~EditorUiSystem()
+{
+    shutdown();
+}
+
 void EditorUiSystem::init(vk::Format swapchainFormat, uint32_t imageCount)
 {
     auto& device = vkContext.getDevice();

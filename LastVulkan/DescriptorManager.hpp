@@ -16,10 +16,12 @@ class DescriptorManager
 public:
     explicit DescriptorManager(VulkanContext& vkContext);
 
+    ~DescriptorManager();
+
     
 
     void createLayouts();
-    void cleanupLayouts();
+    void cleanup();
 
     void createDescriptorPool(
         uint32_t maxFramesInFlight,
