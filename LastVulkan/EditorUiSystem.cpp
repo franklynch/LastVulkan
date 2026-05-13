@@ -133,5 +133,28 @@ void EditorUiSystem::buildMinimal(
     }
 }
 
+InputState EditorUiSystem::captureInputState() const
+{
+    InputState input{};
+
+    if (!imguiInitialized)
+    {
+        return input;
+    }
+
+    const ImGuiIO& io = ImGui::GetIO();
+
+    input.wantsMouseCapture = io.WantCaptureMouse;
+    input.rightMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+    input.middleMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
+
+    input.mouseDeltaX = io.MouseDelta.x;
+    input.mouseDeltaY = io.MouseDelta.y;
+
+    input.scrollDelta = io.MouseWheel;
+
+    return input;
+}
+
 
 

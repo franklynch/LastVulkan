@@ -35,7 +35,7 @@ import vulkan_hpp;
 #include "Scene.hpp"
 
 
-
+#include "InputState.hpp"
 
 
 #include "EnvironmentSystem.hpp"  
@@ -48,11 +48,7 @@ import vulkan_hpp;
 
 
 
-#include "EnvironmentUtils.hpp"
-#include "BrdfLutRenderer.hpp"
-#include "EnvironmentRenderer.hpp"
-#include "IrradianceRenderer.hpp"
-#include "PrefilterRenderer.hpp"
+
 #include "PostProcessRenderer.hpp"
 #include "RenderTargets.hpp"
 #include "FrameResources.hpp"
@@ -91,7 +87,8 @@ public:
    // void focusSelectedRenderable();
     void resetDefaultSceneLayout();
     
-    void updateCameraControls();
+    void updateCameraControls(
+        const InputState& input);
 
     
 
@@ -131,13 +128,7 @@ private:
     void clearSceneResources();
     
     void setupCameraDefaults();
-
-    vk::DescriptorSetLayout externalBloomBlurDescriptorSetLayout{};
-    vk::Sampler externalPostProcessSampler{};
-        
     
-    
-
     std::string currentModelPath;
 
 
@@ -198,18 +189,13 @@ private:
     std::vector<void*> uniformBuffersMapped;
 
 
-    void createEnvironmentCubemap(const std::array<std::string, 6>& facePaths);
+    
     
     
     void resetEnvironmentSettings();
 
 
-    vk::raii::Image environmentCubeImage{ nullptr };
-
-    vk::raii::DeviceMemory environmentCubeMemory{ nullptr };
-    vk::raii::ImageView environmentCubeView{ nullptr };
-    vk::raii::Sampler environmentCubeSampler{ nullptr };
-
+   
 
 
     struct IblCalibrationPreset
@@ -255,16 +241,7 @@ private:
     float specularIBLIntensity = 1.2f;
 
   
-
-
-  
-
-   
-
     bool debugSkyboxFaces = false;
-
-    
-
 
     float rotationSpeed = 10.0f;
 

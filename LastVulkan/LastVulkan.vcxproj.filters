@@ -257,6 +257,9 @@
     <ClInclude Include="EditorUiState.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="InputState.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\skybox_vert.slang" />

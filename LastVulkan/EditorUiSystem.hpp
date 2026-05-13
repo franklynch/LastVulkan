@@ -10,7 +10,7 @@ import vulkan_hpp;
 #include "VulkanContext.hpp"
 
 
-
+#include "InputState.hpp"
 
 #include "EditorUiState.hpp"
 #include "MaterialSystem.hpp"
@@ -52,6 +52,8 @@ public:
     {
         return uiState;
     }
+
+    InputState captureInputState() const;
 
    
 

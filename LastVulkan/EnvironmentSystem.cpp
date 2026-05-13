@@ -352,6 +352,227 @@ uint32_t EnvironmentSystem::getDebugRuntimePrefilteredMipLevels() const
     return prefilterRenderer->getDebugRuntimePrefilteredMipLevels();
 }
 
+void EnvironmentSystem::createFallbackEnvironmentCubemap(const std::array<std::string, 6>& facePaths)
+{
+    auto& device = vkContext.getDevice();
+
+    int texWidth = 0;
+    int texHeight = 0;
+    int texChannels = 0;
+
+    std::vector<stbi_uc*> facePixels(6, nullptr);
+
+    for (size_t i = 0; i < 6; ++i)
+    {
+        int w = 0, h = 0, c = 0;
+        facePixels[i] = stbi_load(facePaths[i].c_str(), &w, &h, &c, STBI_rgb_alpha);
+        if (!facePixels[i])
+        {
+            throw std::runtime_error("Failed to load cubemap face: " + facePaths[i]);
+        }
+
+        if (i == 0)
+        {
+            texWidth = w;
+            texHeight = h;
+            texChannels = 4;
+        }
+        else
+        {
+            if (w != texWidth || h != texHeight)
+            {
+                throw std::runtime_error("Cubemap faces must all have the same dimensions");
+            }
+        }
+    }
+
+    const vk::DeviceSize faceSize =
+        static_cast<vk::DeviceSize>(texWidth) *
+        static_cast<vk::DeviceSize>(texHeight) * 4;
+
+    const vk::DeviceSize totalSize = faceSize * 6;
+
+    vk::raii::Buffer stagingBuffer{ nullptr };
+    vk::raii::DeviceMemory stagingMemory{ nullptr };
+
+    bufferUtils.createBuffer(
+        totalSize,
+        vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+        vk::MemoryPropertyFlagBits::eHostCoherent,
+        stagingBuffer,
+        stagingMemory
+    );
+
+    void* mapped = stagingMemory.mapMemory(0, totalSize);
+    unsigned char* dst = static_cast<unsigned char*>(mapped);
+
+    for (size_t i = 0; i < 6; ++i)
+    {
+        std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
+    }
+
+    stagingMemory.unmapMemory();
+
+    for (auto* pixels : facePixels)
+    {
+        stbi_image_free(pixels);
+    }
+
+    const vk::Format format = vk::Format::eR8G8B8A8Srgb;
+
+    vk::ImageCreateInfo imageInfo{};
+    imageInfo
+        .setFlags(vk::ImageCreateFlagBits::eCubeCompatible)
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(format)
+        .setExtent(vk::Extent3D{
+            static_cast<uint32_t>(texWidth),
+            static_cast<uint32_t>(texHeight),
+            1
+            })
+        .setMipLevels(1)
+        .setArrayLayers(6)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eExclusive)
+        .setInitialLayout(vk::ImageLayout::eUndefined);
+
+    fallbackEnvironmentCubeImage = vk::raii::Image(device, imageInfo);
+
+    vk::MemoryRequirements memReq = fallbackEnvironmentCubeImage.getMemoryRequirements();
+
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo
+        .setAllocationSize(memReq.size)
+        .setMemoryTypeIndex(
+            bufferUtils.findMemoryType(
+                memReq.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            )
+        );
+
+    fallbackEnvironmentCubeMemory = vk::raii::DeviceMemory(device, allocInfo);
+    fallbackEnvironmentCubeImage.bindMemory(*fallbackEnvironmentCubeMemory, 0);
+
+    auto cmd = bufferUtils.beginSingleTimeCommands();
+
+    vk::ImageMemoryBarrier toTransfer{};
+    toTransfer
+        .setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*fallbackEnvironmentCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eTransferWrite);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTopOfPipe,
+        vk::PipelineStageFlagBits::eTransfer,
+        {},
+        nullptr,
+        nullptr,
+        toTransfer
+    );
+
+    std::array<vk::BufferImageCopy, 6> copyRegions{};
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        copyRegions[face]
+            .setBufferOffset(face * faceSize)
+            .setBufferRowLength(0)
+            .setBufferImageHeight(0)
+            .setImageSubresource(
+                vk::ImageSubresourceLayers{}
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setMipLevel(0)
+                .setBaseArrayLayer(face)
+                .setLayerCount(1))
+            .setImageOffset(vk::Offset3D{ 0, 0, 0 })
+            .setImageExtent(vk::Extent3D{
+                static_cast<uint32_t>(texWidth),
+                static_cast<uint32_t>(texHeight),
+                1
+                });
+    }
+
+    cmd.copyBufferToImage(
+        *stagingBuffer,
+        *fallbackEnvironmentCubeImage,
+        vk::ImageLayout::eTransferDstOptimal,
+        copyRegions
+    );
+
+    vk::ImageMemoryBarrier toShaderRead{};
+    toShaderRead
+        .setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+        .setImage(*fallbackEnvironmentCubeImage)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6))
+        .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+
+    cmd.pipelineBarrier(
+        vk::PipelineStageFlagBits::eTransfer,
+        vk::PipelineStageFlagBits::eFragmentShader,
+        {},
+        nullptr,
+        nullptr,
+        toShaderRead
+    );
+
+    bufferUtils.endSingleTimeCommands(cmd);
+
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo
+        .setImage(*fallbackEnvironmentCubeImage)
+        .setViewType(vk::ImageViewType::eCube)
+        .setFormat(format)
+        .setSubresourceRange(
+            vk::ImageSubresourceRange{}
+            .setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setBaseMipLevel(0)
+            .setLevelCount(1)
+            .setBaseArrayLayer(0)
+            .setLayerCount(6));
+
+    fallbackEnvironmentCubeView = vk::raii::ImageView(device, viewInfo);
+
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear)
+        .setMipmapMode(vk::SamplerMipmapMode::eLinear)
+        .setAddressModeU(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeV(vk::SamplerAddressMode::eClampToEdge)
+        .setAddressModeW(vk::SamplerAddressMode::eClampToEdge)
+        .setAnisotropyEnable(VK_FALSE)
+        .setMaxAnisotropy(1.0f)
+        .setMinLod(0.0f)
+        .setMaxLod(0.0f)
+        .setBorderColor(vk::BorderColor::eIntOpaqueBlack)
+        .setUnnormalizedCoordinates(VK_FALSE);
+
+    fallbackEnvironmentCubeSampler = vk::raii::Sampler(device, samplerInfo);
+}
+
 void EnvironmentSystem::cleanup()
 {
     environment.runtimeBrdfLut.pipeline = nullptr;
@@ -407,6 +628,11 @@ void EnvironmentSystem::cleanup()
     hdrEnvironmentView = nullptr;
     hdrEnvironmentMemory = nullptr;
     hdrEnvironmentImage = nullptr;
+
+    fallbackEnvironmentCubeSampler = nullptr;
+    fallbackEnvironmentCubeView = nullptr;
+    fallbackEnvironmentCubeMemory = nullptr;
+    fallbackEnvironmentCubeImage = nullptr;
 
 }
 
@@ -662,9 +888,7 @@ void EnvironmentSystem::generateRuntimePrefilteredCubemap()
 
 void EnvironmentSystem::loadHdrEnvironment(
     const std::string& path,
-    vk::raii::DescriptorSet& iblDescriptorSet,
-    vk::Sampler fallbackEnvironmentSampler,
-    vk::ImageView fallbackEnvironmentView)
+    vk::raii::DescriptorSet& iblDescriptorSet)
 {
     createHdrEnvironmentTexture(path);
 
@@ -676,6 +900,7 @@ void EnvironmentSystem::loadHdrEnvironment(
 
     updateIBLDescriptorSet(
         iblDescriptorSet,
-        fallbackEnvironmentSampler,
-        fallbackEnvironmentView);
+        fallbackEnvironmentSampler(),
+        fallbackEnvironmentView());
 }
+

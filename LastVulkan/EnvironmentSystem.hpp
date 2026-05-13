@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <array>
+#include <string>
 
 #include "EnvironmentResources.hpp"
 #include "VulkanContext.hpp"
@@ -66,16 +68,35 @@ public:
         return hdrEnvironmentView;
     }
 
+    vk::Sampler fallbackEnvironmentSampler() const
+    {
+        return *fallbackEnvironmentCubeSampler;
+    }
+
+    vk::ImageView fallbackEnvironmentView() const
+    {
+        return *fallbackEnvironmentCubeView;
+    }
+
+    vk::raii::Sampler& fallbackEnvironmentSamplerRaii()
+    {
+        return fallbackEnvironmentCubeSampler;
+    }
+
+    vk::raii::ImageView& fallbackEnvironmentViewRaii()
+    {
+        return fallbackEnvironmentCubeView;
+    }
+
     void initRenderers();
 
     void generateRuntimeEnvironmentCubemap();
     void generateRuntimeIrradianceCubemap();
     void generateRuntimePrefilteredCubemap();
 
-    void loadHdrEnvironment(const std::string& path,
-                            vk::raii::DescriptorSet& iblDescriptorSet,
-                            vk::Sampler fallbackEnvironmentSampler,
-                            vk::ImageView fallbackEnvironmentView);
+    void loadHdrEnvironment(const std::string& path, vk::raii::DescriptorSet& iblDescriptorSet);
+
+    
 
 
     void updateIBLDescriptorSet(
@@ -84,6 +105,10 @@ public:
         vk::ImageView fallbackEnvironmentView);
 
     uint32_t getDebugRuntimePrefilteredMipLevels() const;
+
+
+    void createFallbackEnvironmentCubemap(
+        const std::array<std::string, 6>& facePaths);
 
 private:
     VulkanContext& vkContext;
@@ -119,6 +144,11 @@ private:
     std::unique_ptr<EnvironmentRenderer>    environmentRenderer;
     std::unique_ptr<IrradianceRenderer>     irradianceRenderer;
     std::unique_ptr<PrefilterRenderer>      prefilterRenderer;
+
+    vk::raii::Image fallbackEnvironmentCubeImage{ nullptr };
+    vk::raii::DeviceMemory fallbackEnvironmentCubeMemory{ nullptr };
+    vk::raii::ImageView fallbackEnvironmentCubeView{ nullptr };
+    vk::raii::Sampler fallbackEnvironmentCubeSampler{ nullptr };
 
     
 
