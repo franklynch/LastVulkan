@@ -1724,7 +1724,7 @@ void PostProcessRenderer::createPostProcessSampler()
     postProcessSampler = vk::raii::Sampler(device, samplerInfo);
 }
 
-void PostProcessRenderer::beginFinalPass(
+void PostProcessRenderer::beginFinalCompositePass(
     vk::raii::CommandBuffer& commandBuffer,
     vk::ImageView swapchainImageView)
 {
@@ -1762,11 +1762,96 @@ void PostProcessRenderer::beginFinalPass(
         vk::Rect2D(vk::Offset2D(0, 0), extent));
 }
 
-void PostProcessRenderer::endFinalPass(
+void PostProcessRenderer::endFinalCompositePass(
     vk::raii::CommandBuffer& commandBuffer)
 {
     commandBuffer.endRendering();
 }
+
+
+
+void PostProcessRenderer::executeBloomChain(
+    vk::raii::CommandBuffer& commandBuffer)
+{
+    vk::CommandBuffer cmd = *commandBuffer;
+
+    TransitionUtils::transitionToShaderReadOnly(
+        cmd,
+        getHdrImage(),
+        vk::ImageLayout::eColorAttachmentOptimal);
+
+    TransitionUtils::transitionToColorAttachment(
+        cmd,
+        getBloomBrightImage(),
+        vk::ImageLayout::eUndefined);
+
+    recordBloomExtract(commandBuffer);
+
+    TransitionUtils::transitionToShaderReadOnly(
+        cmd,
+        getBloomBrightImage(),
+        vk::ImageLayout::eColorAttachmentOptimal);
+
+    TransitionUtils::transitionToColorAttachment(
+        cmd,
+        getBloomBlurTempImage(),
+        vk::ImageLayout::eUndefined);
+
+    recordBloomBlurFromBright(
+        commandBuffer,
+        getBloomBlurTempView(),
+        glm::vec2(1.0f, 0.0f));
+
+    TransitionUtils::transitionToShaderReadOnly(
+        cmd,
+        getBloomBlurTempImage(),
+        vk::ImageLayout::eColorAttachmentOptimal);
+
+    TransitionUtils::transitionToColorAttachment(
+        cmd,
+        getBloomBrightImage(),
+        vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    recordBloomBlurFromTemp(
+        commandBuffer,
+        getBloomBrightView(),
+        glm::vec2(0.0f, 1.0f));
+
+    TransitionUtils::transitionToShaderReadOnly(
+        cmd,
+        getBloomBrightImage(),
+        vk::ImageLayout::eColorAttachmentOptimal);
+
+    recordBloomPyramid(commandBuffer);
+}
+
+void PostProcessRenderer::executeFinalComposite(
+    vk::raii::CommandBuffer& commandBuffer,
+    vk::Image swapchainImage,
+    vk::ImageView swapchainImageView,
+    vk::ImageLayout oldLayout)
+{
+    vk::CommandBuffer cmd = *commandBuffer;
+
+    TransitionUtils::transitionToColorAttachment(
+        cmd,
+        swapchainImage,
+        oldLayout);
+
+    beginFinalCompositePass(
+        commandBuffer,
+        swapchainImageView);
+
+    recordFinalComposite(commandBuffer);
+
+    endFinalCompositePass(commandBuffer);
+
+    TransitionUtils::transitionToPresent(
+        cmd,
+        swapchainImage);
+}
+
+
 
 glm::vec4 PostProcessRenderer::buildFinalCompositeParams() const
 {

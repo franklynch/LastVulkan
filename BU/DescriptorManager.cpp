@@ -174,7 +174,7 @@ void DescriptorManager::createDescriptorPool(
     poolInfo
         .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
         .setPoolSizes(poolSizes)
-        .setMaxSets(maxFramesInFlight + std::max<uint32_t>(1, materialCount) + 1 + extraDescriptorSetHeadroom);
+        .setMaxSets(maxFramesInFlight + std::max<uint32_t>(1, materialCount) + 1 + 8);
 
     m_descriptorPool =
         vk::raii::DescriptorPool(device, poolInfo);
@@ -228,7 +228,38 @@ void DescriptorManager::allocateIBLDescriptorSet()
     m_iblDescriptorSet = std::move(sets[0]);
 }
 
+void DescriptorManager::createFrameDescriptorSets(
+    uint32_t maxFramesInFlight)
+{
+    std::vector<vk::DescriptorSetLayout> layouts(
+        maxFramesInFlight,
+        frameLayout());
 
+    vk::DescriptorSetAllocateInfo allocInfo{};
+    allocInfo
+        .setDescriptorPool(*m_descriptorPool)
+        .setSetLayouts(layouts);
+
+    m_frameDescriptorSets =
+        vkContext.getDevice().allocateDescriptorSets(allocInfo);
+}
+
+void DescriptorManager::createIBLDescriptorSet()
+{
+    std::array<vk::DescriptorSetLayout, 1> layouts = {
+        iblLayout()
+    };
+
+    vk::DescriptorSetAllocateInfo allocInfo{};
+    allocInfo
+        .setDescriptorPool(*m_descriptorPool)
+        .setSetLayouts(layouts);
+
+    auto sets =
+        vkContext.getDevice().allocateDescriptorSets(allocInfo);
+
+    m_iblDescriptorSet = std::move(sets.front());
+}
 
 void DescriptorManager::updateFrameDescriptorSets(
     const std::vector<vk::raii::Buffer>& uniformBuffers,

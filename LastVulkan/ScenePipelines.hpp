@@ -16,7 +16,7 @@ public:
     ScenePipelines(VulkanContext& vkContext);
 
     void create(
-        vk::Extent2D extent,
+        
         vk::Format hdrColorFormat,
         vk::Format depthFormat,
         vk::DescriptorSetLayout frameLayout,
@@ -25,7 +25,7 @@ public:
         bool wireframeSupported);
 
     void createSkybox(
-        vk::Extent2D extent,
+        
         vk::Format hdrColorFormat,
         vk::Format depthFormat,
         vk::DescriptorSetLayout frameLayout,

@@ -33,6 +33,7 @@ class Application
 {
 public:
     void run();
+    ~Application();
 
 private:
     void init();
@@ -43,6 +44,24 @@ private:
     std::unique_ptr<VulkanContext> vkContext;
     std::unique_ptr<Renderer> renderer;
 };
+
+Application::~Application()
+{
+    if (vkContext)
+    {
+        vkContext->getDevice().waitIdle();
+    }
+
+    renderer.reset();
+
+    if (vkContext)
+    {
+        vkContext->getDevice().waitIdle();
+    }
+
+    vkContext.reset();
+    window.reset();
+}
 
 void Application::run()
 {

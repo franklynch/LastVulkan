@@ -25,7 +25,8 @@ public:
         uint32_t maxFramesInFlight,
         uint32_t materialCount);
 
-    
+    void createFrameDescriptorSets(uint32_t maxFramesInFlight);
+    void createIBLDescriptorSet();
 
     void allocateFrameDescriptorSets(uint32_t maxFramesInFlight);
     void allocateIBLDescriptorSet();
@@ -70,8 +71,6 @@ public:
         return m_iblDescriptorSet;
     }
 
-    
-
 private:
     VulkanContext& vkContext;
 
@@ -84,8 +83,4 @@ private:
     vk::raii::DescriptorSet m_iblDescriptorSet = nullptr;
 
     std::vector<vk::raii::DescriptorSet> m_materialDescriptorSets;
-
-    static constexpr uint32_t extraDescriptorSetHeadroom = 8;
-
-    
 };

@@ -71,8 +71,7 @@ public:
 
     void recordBloomPyramid(vk::raii::CommandBuffer& commandBuffer);
 
-    void recordFinalComposite(
-        vk::raii::CommandBuffer& commandBuffer);
+ 
 
     float bloomThreshold = 1.0f;
     float bloomKnee = 0.5f;
@@ -89,12 +88,27 @@ public:
 
     glm::vec4 buildFinalCompositeParams() const;
 
-    void beginFinalPass(
+    void beginFinalCompositePass(
         vk::raii::CommandBuffer& commandBuffer,
         vk::ImageView swapchainImageView);
 
-    void endFinalPass(
+    void recordFinalComposite(
         vk::raii::CommandBuffer& commandBuffer);
+
+    void endFinalCompositePass(
+        vk::raii::CommandBuffer& commandBuffer);
+
+
+
+    void executeBloomChain(
+        vk::raii::CommandBuffer& commandBuffer);
+
+    void executeFinalComposite(
+        vk::raii::CommandBuffer& commandBuffer,
+        vk::Image swapchainImage,
+        vk::ImageView swapchainImageView,
+        vk::ImageLayout oldLayout);
+;
 
     
 

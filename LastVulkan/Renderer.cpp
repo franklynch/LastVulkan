@@ -101,7 +101,7 @@ void Renderer::init()
     descriptorManager.createLayouts();
 
     scenePipelines.create(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -110,7 +110,7 @@ void Renderer::init()
         isWireframeSupported());
 
     scenePipelines.createSkybox(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -142,7 +142,7 @@ void Renderer::init()
         materialSystem.defaultEmissiveTexture(),
         camera);
 
-    createUniformBuffers();
+    
         
     descriptorManager.createDescriptorPool(
         MAX_FRAMES_IN_FLIGHT,
@@ -166,20 +166,23 @@ void Renderer::init()
    
     resetEnvironmentSettings();
 
+    environmentSystem.createFallbackResources();
+
+    environmentSystem.createFallbackEnvironmentCubemap({
+           "assets/skybox/right.jpg",
+           "assets/skybox/left.jpg",
+           "assets/skybox/top.jpg",
+           "assets/skybox/bottom.jpg",
+           "assets/skybox/front.jpg",
+           "assets/skybox/back.jpg" });
+
   
     environmentSystem.loadHdrEnvironment(
         "assets/hdr/citrus_orchard_road_puresky_4k.hdr",
         descriptorManager.iblDescriptorSet());
 
-    environmentSystem.createFallbackResources();
     
-    environmentSystem.createFallbackEnvironmentCubemap({
-    "assets/skybox/right.jpg",
-    "assets/skybox/left.jpg",
-    "assets/skybox/top.jpg",
-    "assets/skybox/bottom.jpg",
-    "assets/skybox/front.jpg",
-    "assets/skybox/back.jpg" });
+    
    
 
     editorUi.init(
@@ -234,7 +237,7 @@ void Renderer::recreateSwapChain()
     scenePipelines.cleanup();
 
     scenePipelines.create(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -243,7 +246,7 @@ void Renderer::recreateSwapChain()
         isWireframeSupported());
 
     scenePipelines.createSkybox(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -413,6 +416,9 @@ Renderer::AcquiredImage Renderer::acquireSwapchainImage(
 
     try
     {
+
+        // Avoid UINT64_MAX here because validation warns when forward progress
+        // cannot be guaranteed for the surface.
         constexpr uint64_t acquireTimeoutNs =
             1'000'000'000;
 
@@ -860,6 +866,8 @@ void Renderer::resetDefaultSceneLayout()
 
     if (renderables.size() > 0)
     {
+        renderables[0].getTransform().useMatrixOverride = false;
+
         renderables[0].setName("Center");
         renderables[0].getTransform().position = { 0.0f, 0.0f, 0.0f };
         renderables[0].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -868,6 +876,7 @@ void Renderer::resetDefaultSceneLayout()
 
     if (renderables.size() > 1)
     {
+        renderables[1].getTransform().useMatrixOverride = false;
         renderables[1].setName("Right");
         renderables[1].getTransform().position = { 1.5f, 0.0f, 0.0f };
         renderables[1].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -876,6 +885,7 @@ void Renderer::resetDefaultSceneLayout()
 
     if (renderables.size() > 2)
     {
+        renderables[2].getTransform().useMatrixOverride = false;
         renderables[2].setName("Left");
         renderables[2].getTransform().position = { -1.5f, 0.0f, 0.0f };
         renderables[2].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -884,6 +894,8 @@ void Renderer::resetDefaultSceneLayout()
 
     for (size_t i = 3; i < renderables.size(); ++i)
     {
+        renderables[i].getTransform().useMatrixOverride = false;
+
         renderables[i].setName("Renderable " + std::to_string(i));
         renderables[i].getTransform().position = { 0.0f, 0.0f, 0.0f };
         renderables[i].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -952,40 +964,6 @@ void Renderer::updateCameraControls(const InputState& input)
 
 
 
-
-glm::vec3 Renderer::getRenderableWorldPosition(const Renderable& renderable) const
-{
-    return glm::vec3(renderable.getTransform().toMatrix()[3]);
-}
-
-glm::vec3 Renderer::computeSceneCenter() const
-{
-    if (scene.empty())
-    {
-        return glm::vec3(0.0f);
-    }
-
-    glm::vec3 sum(0.0f);
-
-    for (const auto& renderable : scene.getRenderables())
-    {
-        sum += getRenderableWorldPosition(renderable);
-    }
-
-    return sum / static_cast<float>(scene.size());
-}
-
- /* void Renderer::focusSelectedRenderable()
-{
-    Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
-
-    if (!selected)
-    {
-        return;
-    }
-
-    camera.setTarget(getRenderableWorldPosition(*selected));
-} */
 
 
 

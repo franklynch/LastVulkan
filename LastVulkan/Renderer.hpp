@@ -73,27 +73,17 @@ public:
 
     void cleanupSwapChain();
     void recreateSwapChain();
-    
- 
-    
+  
     void drawFrame();
 
     void createUniformBuffers();
-    
-    
-    
-    
-
-   // void focusSelectedRenderable();
+   
     void resetDefaultSceneLayout();
     
     void updateCameraControls(
         const InputState& input);
 
-    
-
     void updateUniformBuffer(uint32_t currentFrame);
-
 
     void recordCommandBuffer(uint32_t imageIndex);
 
@@ -172,7 +162,7 @@ private:
 
 
     bool isWireframeSupported() const;
-    glm::vec3 computeSceneCenter() const;
+    
 
     std::unique_ptr<PostProcessRenderer> postProcessRenderer;
 
@@ -180,7 +170,7 @@ private:
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
 
 
-    glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;
+    
 
    
 
