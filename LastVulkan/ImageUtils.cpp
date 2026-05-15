@@ -174,7 +174,7 @@ void ImageUtils::transitionImageLayout(
 }
 
 void ImageUtils::copyBufferToImage(
-    const vk::raii::Buffer& buffer,
+    VkBuffer buffer,
     vk::raii::Image& image,
     uint32_t width,
     uint32_t height) const
@@ -196,7 +196,7 @@ void ImageUtils::copyBufferToImage(
         .setImageExtent(vk::Extent3D{ width, height, 1 });
 
     commandBuffer.copyBufferToImage(
-        *buffer,
+        buffer,
         *image,
         vk::ImageLayout::eTransferDstOptimal,
         region);

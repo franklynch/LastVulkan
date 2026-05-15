@@ -7,6 +7,7 @@ import vulkan_hpp;
 #endif
 
 #include "VulkanContext.hpp"
+#include "GpuResources.hpp"
 
 class BufferUtils
 {
@@ -15,18 +16,21 @@ public:
 
     uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
 
-    void createBuffer(vk::DeviceSize size,
+    void createBuffer(
+        vk::DeviceSize size,
         vk::BufferUsageFlags usage,
         vk::MemoryPropertyFlags properties,
-        vk::raii::Buffer& buffer,
-        vk::raii::DeviceMemory& bufferMemory) const;
+        GpuBuffer& outBuffer);
 
-    void copyBuffer(vk::raii::Buffer& srcBuffer,
-        vk::raii::Buffer& dstBuffer,
-        vk::DeviceSize size) const;
+    void copyBuffer(
+        VkBuffer srcBuffer,
+        VkBuffer dstBuffer,
+        vk::DeviceSize size);
 
     vk::raii::CommandBuffer beginSingleTimeCommands() const;
     void endSingleTimeCommands(vk::raii::CommandBuffer& commandBuffer) const;
+
+    void destroyBuffer(GpuBuffer& buffer);
 
 private:
     VulkanContext& vkContext;

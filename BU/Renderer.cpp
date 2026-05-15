@@ -18,16 +18,13 @@
 #include <cstdio>
 #include <array>
 
-
-
 #include <stb_image.h>
-
-
-
 
 #include "ShaderUtils.hpp"
 #include "TransitionUtils.hpp"
 #include "PostProcessRenderer.hpp"
+
+
 
 
 
@@ -60,13 +57,7 @@ Renderer::~Renderer()
 {
     vkContext.getDevice().waitIdle();
 
-    environmentSystem.cleanup();
-
    
-
-    editorUi.shutdown();
-
-    frameResources.cleanup();
 }
 
 void Renderer::init()
@@ -101,7 +92,7 @@ void Renderer::init()
     descriptorManager.createLayouts();
 
     scenePipelines.create(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -110,7 +101,7 @@ void Renderer::init()
         isWireframeSupported());
 
     scenePipelines.createSkybox(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -125,24 +116,32 @@ void Renderer::init()
 
     currentModelPath = "models/DamagedHelmet/glTF/DamagedHelmet.gltf";
 
+    GltfSceneLoader::LoadContext loadContext{
+             .scene = scene,
+             .gpuMeshes = gpuMeshes,
+
+             .baseColorTextures = materialSystem.baseColorTextures(),
+             .normalTextures = materialSystem.normalTextures(),
+             .metallicRoughnessTextures = materialSystem.metallicRoughnessTextures(),
+             .aoTextures = materialSystem.aoTextures(),
+             .emissiveTextures = materialSystem.emissiveTextures(),
+
+             .materials = materialSystem.materials(),
+
+             .defaultTexture = materialSystem.defaultTexture(),
+             .defaultNormalTexture = materialSystem.defaultNormalTexture(),
+             .defaultMetallicRoughnessTexture = materialSystem.defaultMetallicRoughnessTexture(),
+             .defaultAoTexture = materialSystem.defaultAoTexture(),
+             .defaultEmissiveTexture = materialSystem.defaultEmissiveTexture(),
+
+             .camera = camera
+    };
+
     gltfSceneLoader.load(
         currentModelPath,
-        scene,
-        gpuMeshes,
-        materialSystem.baseColorTextures(),
-        materialSystem.normalTextures(),
-        materialSystem.metallicRoughnessTextures(),
-        materialSystem.aoTextures(),
-        materialSystem.emissiveTextures(),
-        materialSystem.materials(),
-        materialSystem.defaultTexture(),
-        materialSystem.defaultNormalTexture(),
-        materialSystem.defaultMetallicRoughnessTexture(),
-        materialSystem.defaultAoTexture(),
-        materialSystem.defaultEmissiveTexture(),
-        camera);
+        loadContext);
 
-    createUniformBuffers();
+    
         
     descriptorManager.createDescriptorPool(
         MAX_FRAMES_IN_FLIGHT,
@@ -166,20 +165,23 @@ void Renderer::init()
    
     resetEnvironmentSettings();
 
+    environmentSystem.createFallbackResources();
+
+    environmentSystem.createFallbackEnvironmentCubemap({
+           "assets/skybox/right.jpg",
+           "assets/skybox/left.jpg",
+           "assets/skybox/top.jpg",
+           "assets/skybox/bottom.jpg",
+           "assets/skybox/front.jpg",
+           "assets/skybox/back.jpg" });
+
   
     environmentSystem.loadHdrEnvironment(
         "assets/hdr/citrus_orchard_road_puresky_4k.hdr",
         descriptorManager.iblDescriptorSet());
 
-    environmentSystem.createFallbackResources();
     
-    environmentSystem.createFallbackEnvironmentCubemap({
-    "assets/skybox/right.jpg",
-    "assets/skybox/left.jpg",
-    "assets/skybox/top.jpg",
-    "assets/skybox/bottom.jpg",
-    "assets/skybox/front.jpg",
-    "assets/skybox/back.jpg" });
+    
    
 
     editorUi.init(
@@ -234,7 +236,7 @@ void Renderer::recreateSwapChain()
     scenePipelines.cleanup();
 
     scenePipelines.create(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -243,7 +245,7 @@ void Renderer::recreateSwapChain()
         isWireframeSupported());
 
     scenePipelines.createSkybox(
-        swapchain.extent(),
+        
         postProcessRenderer->getHdrFormat(),
         renderTargets.depthFormat(),
         descriptorManager.frameLayout(),
@@ -251,7 +253,6 @@ void Renderer::recreateSwapChain()
 
     
 }
-
 
 void Renderer::clearSceneResources()
 {
@@ -271,21 +272,26 @@ void Renderer::setupCameraDefaults()
 void Renderer::createUniformBuffers()
 {
     uniformBuffers.clear();
-    uniformBuffersMemory.clear();
-    uniformBuffersMapped.clear();
+    uniformBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    const vk::DeviceSize bufferSize =
+        sizeof(UniformBufferObject);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
     {
-        vk::DeviceSize         bufferSize = sizeof(UniformBufferObject);
-        vk::raii::Buffer       buffer({});
-        vk::raii::DeviceMemory bufferMem({});
-        bufferUtils.createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, buffer, bufferMem);
-        uniformBuffers.emplace_back(std::move(buffer));
-        uniformBuffersMemory.emplace_back(std::move(bufferMem));
-        uniformBuffersMapped.emplace_back(uniformBuffersMemory[i].mapMemory(0, bufferSize));
+        GpuBuffer uniformBuffer{};
+
+        bufferUtils.createBuffer(
+            bufferSize,
+            vk::BufferUsageFlagBits::eUniformBuffer,
+            vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+            uniformBuffer);
+
+        uniformBuffers.emplace_back(
+            std::move(uniformBuffer));
     }
 }
-
 
 void Renderer::updateUniformBuffer(uint32_t currentFrame)
 {
@@ -331,12 +337,14 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
         enableIBL ? 1.0f : 0.0f
     );
 
+    const auto& pp =
+        postProcessRenderer->getSettings();
+
     ubo.postProcessParams = glm::vec4(
-        postProcessRenderer->postExposure,
-        postProcessRenderer->toneMappingEnabled ? 1.0f : 0.0f,
-        postProcessRenderer->gammaEnabled ? 1.0f : 0.0f,
-        glm::radians(environmentRotationDegrees)
-    );
+        pp.exposure,
+        pp.toneMappingEnabled ? 1.0f : 0.0f,
+        pp.gammaEnabled ? 1.0f : 0.0f,
+        glm::radians(environmentRotationDegrees));
 
     ubo.environmentControlParams = glm::vec4(
         rotateSkybox ? 1.0f : 0.0f,
@@ -372,14 +380,16 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     lastUbo = ubo;
 
 
-    std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+    std::memcpy(
+        uniformBuffers[currentFrame].mapped,
+        &ubo,
+        sizeof(ubo));
 
 
 
 
 
 };
-
 
 void Renderer::updateFrameTiming()
 {
@@ -413,6 +423,9 @@ Renderer::AcquiredImage Renderer::acquireSwapchainImage(
 
     try
     {
+
+        // Avoid UINT64_MAX here because validation warns when forward progress
+        // cannot be guaranteed for the surface.
         constexpr uint64_t acquireTimeoutNs =
             1'000'000'000;
 
@@ -764,7 +777,6 @@ void Renderer::recordFinalCompositePass(
         swapchain.images()[imageIndex]);
 }
 
-
 void Renderer::drawFrame()
 {
     updateFrameTiming();
@@ -860,6 +872,8 @@ void Renderer::resetDefaultSceneLayout()
 
     if (renderables.size() > 0)
     {
+        renderables[0].getTransform().useMatrixOverride = false;
+
         renderables[0].setName("Center");
         renderables[0].getTransform().position = { 0.0f, 0.0f, 0.0f };
         renderables[0].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -868,6 +882,7 @@ void Renderer::resetDefaultSceneLayout()
 
     if (renderables.size() > 1)
     {
+        renderables[1].getTransform().useMatrixOverride = false;
         renderables[1].setName("Right");
         renderables[1].getTransform().position = { 1.5f, 0.0f, 0.0f };
         renderables[1].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -876,6 +891,7 @@ void Renderer::resetDefaultSceneLayout()
 
     if (renderables.size() > 2)
     {
+        renderables[2].getTransform().useMatrixOverride = false;
         renderables[2].setName("Left");
         renderables[2].getTransform().position = { -1.5f, 0.0f, 0.0f };
         renderables[2].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
@@ -884,17 +900,14 @@ void Renderer::resetDefaultSceneLayout()
 
     for (size_t i = 3; i < renderables.size(); ++i)
     {
+        renderables[i].getTransform().useMatrixOverride = false;
+
         renderables[i].setName("Renderable " + std::to_string(i));
         renderables[i].getTransform().position = { 0.0f, 0.0f, 0.0f };
         renderables[i].getTransform().rotation = { 0.0f, 0.0f, 0.0f };
         renderables[i].getTransform().scale = { 1.0f, 1.0f, 1.0f };
     }
 }
-
-
-
-
-
 
 void Renderer::updateCameraControls(const InputState& input)
 {
@@ -949,55 +962,18 @@ void Renderer::updateCameraControls(const InputState& input)
     camera.setNearFar(cameraNear, cameraFar);
 }
 
-
-
-
-
-glm::vec3 Renderer::getRenderableWorldPosition(const Renderable& renderable) const
-{
-    return glm::vec3(renderable.getTransform().toMatrix()[3]);
-}
-
-glm::vec3 Renderer::computeSceneCenter() const
-{
-    if (scene.empty())
-    {
-        return glm::vec3(0.0f);
-    }
-
-    glm::vec3 sum(0.0f);
-
-    for (const auto& renderable : scene.getRenderables())
-    {
-        sum += getRenderableWorldPosition(renderable);
-    }
-
-    return sum / static_cast<float>(scene.size());
-}
-
- /* void Renderer::focusSelectedRenderable()
-{
-    Renderable* selected = scene.getSelectedRenderable(uiState.selectedRenderableIndex);
-
-    if (!selected)
-    {
-        return;
-    }
-
-    camera.setTarget(getRenderableWorldPosition(*selected));
-} */
-
-
-
-
 bool Renderer::isWireframeSupported() const
 {
     return vkContext.isFillModeNonSolidEnabled();
 }
 
-
 void Renderer::resetEnvironmentSettings()
 {
+    
+    const auto& pp =
+        postProcessRenderer->getSettings();
+
+
     showSkybox = true;
     enableIBL = true;
     debugReflectionOnly = false;
@@ -1009,16 +985,14 @@ void Renderer::resetEnvironmentSettings()
     diffuseIBLIntensity = 1.0f;
     specularIBLIntensity = 1.0f;
 
-    postProcessRenderer->toneMappingEnabled = true;
-    postProcessRenderer->gammaEnabled    = true;
-    postProcessRenderer->postExposure = 1.0f;
+    postProcessRenderer->getSettings().toneMappingEnabled = true;
+    postProcessRenderer->getSettings().gammaEnabled    = true;
+    postProcessRenderer->getSettings().exposure = 1.0f;
 
     environmentRotationDegrees = 0.0f;
     rotateSkybox = true;
     rotateIBLLighting = true;
 }
-
-
 
 void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
 {
@@ -1027,7 +1001,7 @@ void Renderer::applyIblCalibrationPreset(const IblCalibrationPreset& preset)
     iblIntensity = preset.iblIntensity;
     diffuseIBLIntensity = preset.diffuseIBLIntensity;
     specularIBLIntensity = preset.specularIBLIntensity;
-    postProcessRenderer->postExposure = preset.postExposure;
+    postProcessRenderer->getSettings().exposure = preset.postExposure;
 }
 
 void Renderer::resetIblEnergyCalibration()

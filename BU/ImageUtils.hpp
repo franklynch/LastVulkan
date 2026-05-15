@@ -39,7 +39,7 @@ public:
         uint32_t mipLevels) const;
 
     void copyBufferToImage(
-        const vk::raii::Buffer& buffer,
+        VkBuffer buffer,
         vk::raii::Image& image,
         uint32_t width,
         uint32_t height) const;

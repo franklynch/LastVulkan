@@ -57,6 +57,13 @@ Renderer::~Renderer()
 {
     vkContext.getDevice().waitIdle();
 
+    for (auto& buffer : uniformBuffers)
+    {
+        bufferUtils.destroyBuffer(buffer);
+    }
+
+    uniformBuffers.clear();
+
    
 }
 
@@ -286,13 +293,7 @@ void Renderer::createUniformBuffers()
             vk::BufferUsageFlagBits::eUniformBuffer,
             vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent,
-            uniformBuffer.buffer,
-            uniformBuffer.memory);
-
-        uniformBuffer.mapped =
-            uniformBuffer.memory.mapMemory(
-                0,
-                bufferSize);
+            uniformBuffer);
 
         uniformBuffers.emplace_back(
             std::move(uniformBuffer));

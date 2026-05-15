@@ -6,8 +6,19 @@ DescriptorManager::DescriptorManager(VulkanContext& vkContext)
 {
 }
 
-void DescriptorManager::cleanupLayouts()
+DescriptorManager::~DescriptorManager()
 {
+    cleanup();
+}
+
+void DescriptorManager::cleanup()
+{
+    m_materialDescriptorSets.clear();
+    m_frameDescriptorSets.clear();
+    m_iblDescriptorSet = nullptr;
+
+    m_descriptorPool = nullptr;
+
     m_iblDescriptorSetLayout = nullptr;
     m_materialDescriptorSetLayout = nullptr;
     m_frameDescriptorSetLayout = nullptr;
@@ -174,7 +185,7 @@ void DescriptorManager::createDescriptorPool(
     poolInfo
         .setFlags(vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet)
         .setPoolSizes(poolSizes)
-        .setMaxSets(maxFramesInFlight + std::max<uint32_t>(1, materialCount) + 1 + 8);
+        .setMaxSets(maxFramesInFlight + std::max<uint32_t>(1, materialCount) + 1 + extraDescriptorSetHeadroom);
 
     m_descriptorPool =
         vk::raii::DescriptorPool(device, poolInfo);
@@ -228,41 +239,9 @@ void DescriptorManager::allocateIBLDescriptorSet()
     m_iblDescriptorSet = std::move(sets[0]);
 }
 
-void DescriptorManager::createFrameDescriptorSets(
-    uint32_t maxFramesInFlight)
-{
-    std::vector<vk::DescriptorSetLayout> layouts(
-        maxFramesInFlight,
-        frameLayout());
-
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo
-        .setDescriptorPool(*m_descriptorPool)
-        .setSetLayouts(layouts);
-
-    m_frameDescriptorSets =
-        vkContext.getDevice().allocateDescriptorSets(allocInfo);
-}
-
-void DescriptorManager::createIBLDescriptorSet()
-{
-    std::array<vk::DescriptorSetLayout, 1> layouts = {
-        iblLayout()
-    };
-
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo
-        .setDescriptorPool(*m_descriptorPool)
-        .setSetLayouts(layouts);
-
-    auto sets =
-        vkContext.getDevice().allocateDescriptorSets(allocInfo);
-
-    m_iblDescriptorSet = std::move(sets.front());
-}
 
 void DescriptorManager::updateFrameDescriptorSets(
-    const std::vector<vk::raii::Buffer>& uniformBuffers,
+    const std::vector<GpuBuffer>& uniformBuffers,
     uint32_t maxFramesInFlight)
 {
     auto& device = vkContext.getDevice();
@@ -283,7 +262,7 @@ void DescriptorManager::updateFrameDescriptorSets(
     {
         vk::DescriptorBufferInfo bufferInfo{};
         bufferInfo
-            .setBuffer(*uniformBuffers[i])
+            .setBuffer(uniformBuffers[i].buffer)
             .setOffset(0)
             .setRange(sizeof(UniformBufferObject));
 
@@ -291,12 +270,11 @@ void DescriptorManager::updateFrameDescriptorSets(
         write
             .setDstSet(*m_frameDescriptorSets[i])
             .setDstBinding(0)
-            .setDstArrayElement(0)
             .setDescriptorType(vk::DescriptorType::eUniformBuffer)
             .setDescriptorCount(1)
             .setBufferInfo(bufferInfo);
 
-        device.updateDescriptorSets(write, nullptr);
+        device.updateDescriptorSets(write, {});
     }
 }
 

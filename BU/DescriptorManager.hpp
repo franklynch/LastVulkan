@@ -11,28 +11,31 @@ import vulkan_hpp;
 #include "VulkanContext.hpp"
 #include "Material.hpp"
 
+#include "GpuResources.hpp"
+
 class DescriptorManager
 {
 public:
     explicit DescriptorManager(VulkanContext& vkContext);
 
+    ~DescriptorManager();
+
     
 
     void createLayouts();
-    void cleanupLayouts();
+    void cleanup();
 
     void createDescriptorPool(
         uint32_t maxFramesInFlight,
         uint32_t materialCount);
 
-    void createFrameDescriptorSets(uint32_t maxFramesInFlight);
-    void createIBLDescriptorSet();
+    
 
     void allocateFrameDescriptorSets(uint32_t maxFramesInFlight);
     void allocateIBLDescriptorSet();
 
     void updateFrameDescriptorSets(
-        const std::vector<vk::raii::Buffer>& uniformBuffers,
+        const std::vector<GpuBuffer>& uniformBuffers,
         uint32_t maxFramesInFlight);
 
     void createMaterialDescriptorSets(
@@ -71,6 +74,8 @@ public:
         return m_iblDescriptorSet;
     }
 
+    
+
 private:
     VulkanContext& vkContext;
 
@@ -83,4 +88,8 @@ private:
     vk::raii::DescriptorSet m_iblDescriptorSet = nullptr;
 
     std::vector<vk::raii::DescriptorSet> m_materialDescriptorSets;
+
+    static constexpr uint32_t extraDescriptorSetHeadroom = 8;
+
+    
 };

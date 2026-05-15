@@ -20,11 +20,21 @@ public:
         const std::vector<Vertex>& vertices,
         const std::vector<uint32_t>& indices);
 
+	~GpuMesh();
+
     GpuMesh(const GpuMesh&) = delete;
     GpuMesh& operator=(const GpuMesh&) = delete;
 
-    [[nodiscard]] const vk::raii::Buffer& getVertexBuffer() const { return vertexBuffer.buffer; }
-    [[nodiscard]] const vk::raii::Buffer& getIndexBuffer() const { return indexBuffer.buffer; }
+    vk::Buffer getVertexBuffer() const
+    {
+        return vertexBuffer.buffer;
+    }
+
+    vk::Buffer getIndexBuffer() const
+    {
+        return indexBuffer.buffer;
+    }
+
     [[nodiscard]] uint32_t getVertexCount() const { return vertexCount; }
     [[nodiscard]] uint32_t getIndexCount() const { return indexCount; }
 

@@ -25,31 +25,68 @@ uint32_t BufferUtils::findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlag
     throw std::runtime_error("failed to find suitable memory type!");
 }
 
-void BufferUtils::createBuffer(vk::DeviceSize size,
+void BufferUtils::createBuffer(
+    vk::DeviceSize size,
     vk::BufferUsageFlags usage,
     vk::MemoryPropertyFlags properties,
-    vk::raii::Buffer& buffer,
-    vk::raii::DeviceMemory& bufferMemory) const
+    GpuBuffer& outBuffer)
 {
-    auto& device = vkContext.getDevice();
+    outBuffer.buffer = VK_NULL_HANDLE;
+    outBuffer.allocation = VK_NULL_HANDLE;
+    outBuffer.mapped = nullptr;
 
-    vk::BufferCreateInfo bufferInfo{};
-    bufferInfo
-        .setSize(size)
-        .setUsage(usage)
-        .setSharingMode(vk::SharingMode::eExclusive);
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = static_cast<VkDeviceSize>(size);
+    bufferInfo.usage = static_cast<VkBufferUsageFlags>(usage);
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    buffer = vk::raii::Buffer(device, bufferInfo);
+    VmaAllocationCreateInfo allocInfo{};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
-    vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
+    if (properties & vk::MemoryPropertyFlagBits::eHostVisible)
+    {
+        allocInfo.flags =
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+            VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
+    else
+    {
+        allocInfo.preferredFlags =
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
 
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo
-        .setAllocationSize(memRequirements.size)
-        .setMemoryTypeIndex(findMemoryType(memRequirements.memoryTypeBits, properties));
+    VmaAllocationInfo allocationInfo{};
 
-    bufferMemory = vk::raii::DeviceMemory(device, allocInfo);
-    buffer.bindMemory(bufferMemory, 0);
+    VkResult result = vmaCreateBuffer(
+        vkContext.getAllocator(),
+        &bufferInfo,
+        &allocInfo,
+        &outBuffer.buffer,
+        &outBuffer.allocation,
+        &allocationInfo);
+
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("failed to create VMA buffer");
+    }
+
+    outBuffer.mapped = allocationInfo.pMappedData;
+}
+
+void BufferUtils::destroyBuffer(GpuBuffer& buffer)
+{
+    if (buffer.buffer != VK_NULL_HANDLE)
+    {
+        vmaDestroyBuffer(
+            vkContext.getAllocator(),
+            buffer.buffer,
+            buffer.allocation);
+
+        buffer.buffer = VK_NULL_HANDLE;
+        buffer.allocation = VK_NULL_HANDLE;
+        buffer.mapped = nullptr;
+    }
 }
 
 vk::raii::CommandBuffer BufferUtils::beginSingleTimeCommands() const
@@ -85,9 +122,9 @@ void BufferUtils::endSingleTimeCommands(vk::raii::CommandBuffer& commandBuffer) 
     queue.waitIdle();
 }
 
-void BufferUtils::copyBuffer(vk::raii::Buffer& srcBuffer,
-    vk::raii::Buffer& dstBuffer,
-    vk::DeviceSize size) const
+void BufferUtils::copyBuffer(VkBuffer srcBuffer,
+    VkBuffer dstBuffer,
+    vk::DeviceSize size)
 {
     auto commandBuffer = beginSingleTimeCommands();
 
@@ -97,7 +134,7 @@ void BufferUtils::copyBuffer(vk::raii::Buffer& srcBuffer,
         .setDstOffset(0)
         .setSize(size);
 
-    commandBuffer.copyBuffer(*srcBuffer, *dstBuffer, copyRegion);
+    commandBuffer.copyBuffer(srcBuffer, dstBuffer, copyRegion);
 
     endSingleTimeCommands(commandBuffer);
 }

@@ -21,6 +21,12 @@ VulkanContext::VulkanContext(
 VulkanContext::~VulkanContext()
 {
     device.waitIdle();
+
+    if (allocator != VK_NULL_HANDLE)
+    {
+        vmaDestroyAllocator(allocator);
+        allocator = VK_NULL_HANDLE;
+    }
 }
 
 void VulkanContext::createInstance()
@@ -274,6 +280,23 @@ void VulkanContext::createLogicalDevice()
 
     device = vk::raii::Device(physicalDevice, deviceCreateInfo);
     queue = vk::raii::Queue(device, queueIndex, 0);
+
+    VmaAllocatorCreateInfo allocatorInfo{};
+    allocatorInfo.instance = *instance;
+    allocatorInfo.physicalDevice = *physicalDevice;
+    allocatorInfo.device = *device;
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+
+    VkResult result =
+        vmaCreateAllocator(
+            &allocatorInfo,
+            &allocator);
+
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error(
+            "failed to create VMA allocator");
+    }
 
     printLogicalDeviceInfo(queueIndex);
 }

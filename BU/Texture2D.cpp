@@ -187,20 +187,23 @@ void Texture2D::createFromPixels(
         static_cast<vk::DeviceSize>(height) *
         4;
 
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingBufferMemory{ nullptr };
+    GpuBuffer stagingBuffer;
 
     bufferUtils.createBuffer(
         imageSize,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
         vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingBufferMemory);
+        stagingBuffer);
 
-    void* mapped = stagingBufferMemory.mapMemory(0, imageSize);
-    std::memcpy(mapped, uploadPixels, static_cast<size_t>(imageSize));
-    stagingBufferMemory.unmapMemory();
+   
+
+    std::memcpy(
+        stagingBuffer.mapped,
+        uploadPixels,
+        static_cast<size_t>(imageSize));
+
+    
 
     imageUtils.createImage(
         width,
@@ -222,10 +225,12 @@ void Texture2D::createFromPixels(
         mipLevels);
 
     imageUtils.copyBufferToImage(
-        stagingBuffer,
+        stagingBuffer.buffer,
         image,
         width,
         height);
+
+    bufferUtils.destroyBuffer(stagingBuffer);
 
     imageUtils.transitionImageLayout(
         image,

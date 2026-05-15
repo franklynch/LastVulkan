@@ -494,22 +494,11 @@ GltfSceneLoader::createRenderables(
 
 }
 
+
+
 void GltfSceneLoader::load(
     const std::string& path,
-    Scene& scene,
-    std::vector<std::unique_ptr<GpuMesh>>& gpuMeshes,
-    std::vector<std::unique_ptr<Texture2D>>& textures,
-    std::vector<std::unique_ptr<Texture2D>>& normalTextures,
-    std::vector<std::unique_ptr<Texture2D>>& metallicRoughnessTextures,
-    std::vector<std::unique_ptr<Texture2D>>& aoTextures,
-    std::vector<std::unique_ptr<Texture2D>>& emissiveTextures,
-    std::vector<std::unique_ptr<Material>>& materials,
-    Texture2D& defaultTexture,
-    Texture2D& defaultNormalTexture,
-    Texture2D& defaultMetallicRoughnessTexture,
-    Texture2D& defaultAoTexture,
-    Texture2D& defaultEmissiveTexture,
-    Camera& camera)
+    LoadContext& context)
 {
     GltfSceneData imported =
         loadGltfFile(path);
@@ -517,35 +506,35 @@ void GltfSceneLoader::load(
     TextureUploadMaps textureMaps =
         uploadTextures(
             imported,
-            textures,
-            normalTextures,
-            metallicRoughnessTextures,
-            aoTextures,
-            emissiveTextures);
+            context.baseColorTextures,
+            context.normalTextures,
+            context.metallicRoughnessTextures,
+            context.aoTextures,
+            context.emissiveTextures);
 
     createMaterials(
         imported,
         textureMaps,
-        materials,
-        textures,
-        normalTextures,
-        metallicRoughnessTextures,
-        aoTextures,
-        emissiveTextures,
-        defaultTexture,
-        defaultNormalTexture,
-        defaultMetallicRoughnessTexture,
-        defaultAoTexture,
-        defaultEmissiveTexture);
+        context.materials,
+        context.baseColorTextures,
+        context.normalTextures,
+        context.metallicRoughnessTextures,
+        context.aoTextures,
+        context.emissiveTextures,
+        context.defaultTexture,
+        context.defaultNormalTexture,
+        context.defaultMetallicRoughnessTexture,
+        context.defaultAoTexture,
+        context.defaultEmissiveTexture);
 
     auto loadedSceneInfo =
         createRenderables(
             imported,
-            scene,
-            gpuMeshes,
-            materials);
+            context.scene,
+            context.gpuMeshes,
+            context.materials);
 
-    camera.frameBounds(
+    context.camera.frameBounds(
         loadedSceneInfo.minBounds,
         loadedSceneInfo.maxBounds);
 }

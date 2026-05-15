@@ -25,6 +25,7 @@ import vulkan_hpp;
 #include "BufferUtils.hpp"
 #include "ImageUtils.hpp"
 #include "MeshData.hpp"
+#include "GpuResources.hpp"
 
 
 
@@ -73,27 +74,17 @@ public:
 
     void cleanupSwapChain();
     void recreateSwapChain();
-    
- 
-    
+  
     void drawFrame();
 
     void createUniformBuffers();
-    
-    
-    
-    
-
-   // void focusSelectedRenderable();
+   
     void resetDefaultSceneLayout();
     
     void updateCameraControls(
         const InputState& input);
 
-    
-
     void updateUniformBuffer(uint32_t currentFrame);
-
 
     void recordCommandBuffer(uint32_t imageIndex);
 
@@ -172,26 +163,15 @@ private:
 
 
     bool isWireframeSupported() const;
-    glm::vec3 computeSceneCenter() const;
+    
 
     std::unique_ptr<PostProcessRenderer> postProcessRenderer;
 
 
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
 
+    std::vector<GpuBuffer> uniformBuffers;
 
-    glm::vec3 getRenderableWorldPosition(const Renderable& renderable) const;
-
-   
-
-    std::vector<vk::raii::Buffer> uniformBuffers;
-    std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
-
-
-    
-    
-    
     void resetEnvironmentSettings();
 
 

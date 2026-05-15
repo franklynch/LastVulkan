@@ -40,11 +40,11 @@ void SceneRenderer::renderOpaque(
 
         commandBuffer.bindVertexBuffers(
             0,
-            *renderable.getMesh().getVertexBuffer(),
+            renderable.getMesh().getVertexBuffer(),
             { 0 });
 
         commandBuffer.bindIndexBuffer(
-            *renderable.getMesh().getIndexBuffer(),
+            renderable.getMesh().getIndexBuffer(),
             0,
             vk::IndexType::eUint32);
 
@@ -187,11 +187,11 @@ void SceneRenderer::renderTransparent(
 
         commandBuffer.bindVertexBuffers(
             0,
-            *renderable->getMesh().getVertexBuffer(),
+            renderable->getMesh().getVertexBuffer(),
             { 0 });
 
         commandBuffer.bindIndexBuffer(
-            *renderable->getMesh().getIndexBuffer(),
+            renderable->getMesh().getIndexBuffer(),
             0,
             vk::IndexType::eUint32);
 

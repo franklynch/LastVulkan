@@ -50,7 +50,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\dev\LastVulkan\LastVulkan\3party\DirectXTex\include;C:\dev\LastVulkan\LastVulkan\3party\tinygltf;C:\dev\LastVulkan\LastVulkan\3party\ImGui;C:\dev\LastVulkan\LastVulkan\3party\tinyobjloader;C:\dev\LastVulkan\LastVulkan\3party\stb;C:\dev\LastVulkan\LastVulkan\3party\glm;C:\dev\LastVulkan\LastVulkan\3party\GLFW\include;C:\VulkanSDK\1.4.341.1\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\VulkanSDK\1.4.341.1\Include\vma;C:\dev\LastVulkan\LastVulkan\3party\DirectXTex\include;C:\dev\LastVulkan\LastVulkan\3party\tinygltf;C:\dev\LastVulkan\LastVulkan\3party\ImGui;C:\dev\LastVulkan\LastVulkan\3party\tinyobjloader;C:\dev\LastVulkan\LastVulkan\3party\stb;C:\dev\LastVulkan\LastVulkan\3party\glm;C:\dev\LastVulkan\LastVulkan\3party\GLFW\include;C:\VulkanSDK\1.4.341.1\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -112,6 +112,7 @@
     <ClCompile Include="Texture2D.cpp" />
     <ClCompile Include="TinyGltfImpl.cpp" />
     <ClCompile Include="TransitionUtils.cpp" />
+    <ClCompile Include="Vma.cpp" />
     <ClCompile Include="Window.cpp" />
     <ClCompile Include="VulkanContext.cpp" />
     <ClCompile Include="Renderer.cpp" />

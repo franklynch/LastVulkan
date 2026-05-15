@@ -17,6 +17,8 @@ public:
         BufferUtils& bufferUtils,
         ImageUtils& imageUtils);
 
+    ~MaterialSystem();
+
     void createDefaultTextures();
     void clear();
 

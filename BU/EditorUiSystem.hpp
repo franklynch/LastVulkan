@@ -25,6 +25,8 @@ public:
         Window& window,
         VulkanContext& vkContext);
 
+    ~EditorUiSystem();
+
     void init(
         vk::Format swapchainFormat,
         uint32_t imageCount);

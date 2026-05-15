@@ -34,28 +34,30 @@ void GpuMesh::createVertexBuffer(const std::vector<Vertex>& vertices)
     
     vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
+    GpuBuffer stagingBuffer;
 
     bufferUtils.createBuffer(
         bufferSize,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory);
+        stagingBuffer);
 
-    void* data = stagingMemory.mapMemory(0, bufferSize);
-    std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
-    stagingMemory.unmapMemory();
+
+    std::memcpy(
+        stagingBuffer.mapped,
+        vertices.data(),
+        static_cast<size_t>(bufferSize));
 
     bufferUtils.createBuffer(
         bufferSize,
         vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
-        vertexBuffer,
-        vertexBufferMemory);
+        vertexBuffer);
+        
+    
+    bufferUtils.copyBuffer(stagingBuffer.buffer, vertexBuffer.buffer, bufferSize);
 
-    bufferUtils.copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+    bufferUtils.destroyBuffer(stagingBuffer);
 }
 
 void GpuMesh::createIndexBuffer(const std::vector<uint32_t>& indices)
@@ -67,26 +69,29 @@ void GpuMesh::createIndexBuffer(const std::vector<uint32_t>& indices)
     
     vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
+    GpuBuffer stagingBuffer;
 
     bufferUtils.createBuffer(
         bufferSize,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory);
+        stagingBuffer);
 
-    void* data = stagingMemory.mapMemory(0, bufferSize);
-    std::memcpy(data, indices.data(), static_cast<size_t>(bufferSize));
-    stagingMemory.unmapMemory();
+    
+    std::memcpy(
+        stagingBuffer.mapped,
+        indices.data(),
+        static_cast<size_t>(bufferSize));
+        
+        
 
     bufferUtils.createBuffer(
         bufferSize,
         vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
         vk::MemoryPropertyFlagBits::eDeviceLocal,
-        indexBuffer,
-        indexBufferMemory);
+        indexBuffer);
 
-    bufferUtils.copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+    bufferUtils.copyBuffer(stagingBuffer.buffer, indexBuffer.buffer, bufferSize);
+
+    bufferUtils.destroyBuffer(stagingBuffer);
 }

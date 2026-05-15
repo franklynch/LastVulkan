@@ -262,7 +262,7 @@ void DescriptorManager::updateFrameDescriptorSets(
     {
         vk::DescriptorBufferInfo bufferInfo{};
         bufferInfo
-            .setBuffer(*uniformBuffers[i].buffer)
+            .setBuffer(uniformBuffers[i].buffer)
             .setOffset(0)
             .setRange(sizeof(UniformBufferObject));
 

@@ -13,6 +13,8 @@
 import vulkan_hpp;
 #endif
 
+#include <vk_mem_alloc.h>
+
 #include "Window.hpp"
 
 class VulkanContext
@@ -51,6 +53,11 @@ public:
     vk::SampleCountFlagBits getMsaaSamples() const { return msaaSamples; }
 
     [[nodiscard]] bool isFillModeNonSolidEnabled() const { return fillModeNonSolidEnabled; }
+
+    VmaAllocator getAllocator() const
+    {
+        return allocator;
+    }
 
 private:
     void createInstance();
@@ -91,4 +98,6 @@ private:
 
     uint32_t queueIndex = ~0u;
     vk::SampleCountFlagBits msaaSamples = vk::SampleCountFlagBits::e1;
+
+    VmaAllocator allocator = VK_NULL_HANDLE;
 };

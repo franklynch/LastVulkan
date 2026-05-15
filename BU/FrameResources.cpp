@@ -7,6 +7,11 @@ FrameResources::FrameResources(VulkanContext& vkContext)
 {
 }
 
+FrameResources::~FrameResources()
+{
+    cleanup();
+}
+
 void FrameResources::createCommandBuffers(uint32_t maxFramesInFlight)
 {
     vk::CommandBufferAllocateInfo allocInfo{};

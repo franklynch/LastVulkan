@@ -4,6 +4,8 @@
 #include "VulkanContext.hpp"
 #include "BufferUtils.hpp"
 
+#include "GpuResources.hpp"
+
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
 #else
@@ -21,8 +23,16 @@ public:
     GpuMesh(const GpuMesh&) = delete;
     GpuMesh& operator=(const GpuMesh&) = delete;
 
-    [[nodiscard]] const vk::raii::Buffer& getVertexBuffer() const { return vertexBuffer; }
-    [[nodiscard]] const vk::raii::Buffer& getIndexBuffer() const { return indexBuffer; }
+    vk::Buffer getVertexBuffer() const
+    {
+        return vertexBuffer.buffer;
+    }
+
+    vk::Buffer getIndexBuffer() const
+    {
+        return indexBuffer.buffer;
+    }
+
     [[nodiscard]] uint32_t getVertexCount() const { return vertexCount; }
     [[nodiscard]] uint32_t getIndexCount() const { return indexCount; }
 
@@ -34,11 +44,8 @@ private:
     VulkanContext& vkContext;
     BufferUtils& bufferUtils;
 
-    vk::raii::Buffer vertexBuffer = nullptr;
-    vk::raii::DeviceMemory vertexBufferMemory = nullptr;
-
-    vk::raii::Buffer indexBuffer = nullptr;
-    vk::raii::DeviceMemory indexBufferMemory = nullptr;
+    GpuBuffer vertexBuffer;
+    GpuBuffer indexBuffer;
 
     uint32_t indexCount = 0;
 	uint32_t vertexCount = 0;

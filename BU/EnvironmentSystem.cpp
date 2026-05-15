@@ -10,6 +10,11 @@ EnvironmentSystem::EnvironmentSystem(VulkanContext& vkContext, BufferUtils& buff
 
 }
 
+EnvironmentSystem::~EnvironmentSystem()
+{
+    cleanup();
+}
+
 void EnvironmentSystem::createFallbackResources()
 
 {   
@@ -59,20 +64,22 @@ void EnvironmentSystem::createFallbackBlackCube()
 
     vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(blackFaces.size());
 
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
+    GpuBuffer stagingBuffer;
 
     bufferUtils.createBuffer(
         imageSize,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory
-    );
+        stagingBuffer);
+        
+       
 
-    void* mapped = stagingMemory.mapMemory(0, imageSize);
-    std::memcpy(mapped, blackFaces.data(), static_cast<size_t>(imageSize));
-    stagingMemory.unmapMemory();
+    std::memcpy(
+        stagingBuffer.mapped,
+        blackFaces.data(),
+        static_cast<size_t>(imageSize));
+
+    
 
     vk::ImageCreateInfo imageInfo{};
     imageInfo
@@ -151,7 +158,7 @@ void EnvironmentSystem::createFallbackBlackCube()
     }
 
     cmd.copyBufferToImage(
-        *stagingBuffer,
+        stagingBuffer.buffer,
         *fallbackBlackCubeImage,
         vk::ImageLayout::eTransferDstOptimal,
         copyRegions
@@ -392,19 +399,16 @@ void EnvironmentSystem::createFallbackEnvironmentCubemap(const std::array<std::s
 
     const vk::DeviceSize totalSize = faceSize * 6;
 
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
+    GpuBuffer stagingBuffer;
 
     bufferUtils.createBuffer(
         totalSize,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
         vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory
-    );
+        stagingBuffer);
 
-    void* mapped = stagingMemory.mapMemory(0, totalSize);
+    void* mapped = stagingBuffer.mapped;
     unsigned char* dst = static_cast<unsigned char*>(mapped);
 
     for (size_t i = 0; i < 6; ++i)
@@ -412,7 +416,7 @@ void EnvironmentSystem::createFallbackEnvironmentCubemap(const std::array<std::s
         std::memcpy(dst + i * faceSize, facePixels[i], static_cast<size_t>(faceSize));
     }
 
-    stagingMemory.unmapMemory();
+    
 
     for (auto* pixels : facePixels)
     {
@@ -506,7 +510,7 @@ void EnvironmentSystem::createFallbackEnvironmentCubemap(const std::array<std::s
     }
 
     cmd.copyBufferToImage(
-        *stagingBuffer,
+        stagingBuffer.buffer,
         *fallbackEnvironmentCubeImage,
         vk::ImageLayout::eTransferDstOptimal,
         copyRegions
@@ -539,6 +543,8 @@ void EnvironmentSystem::createFallbackEnvironmentCubemap(const std::array<std::s
     );
 
     bufferUtils.endSingleTimeCommands(cmd);
+
+    bufferUtils.destroyBuffer(stagingBuffer);
 
     vk::ImageViewCreateInfo viewInfo{};
     viewInfo
@@ -575,6 +581,14 @@ void EnvironmentSystem::createFallbackEnvironmentCubemap(const std::array<std::s
 
 void EnvironmentSystem::cleanup()
 {
+    
+    
+    environmentRenderer.reset();
+    irradianceRenderer.reset();
+    prefilterRenderer.reset();
+    brdfLutRenderer.reset();
+    
+    
     environment.runtimeBrdfLut.pipeline = nullptr;
     environment.runtimeBrdfLut.layout = nullptr;
     environment.runtimeBrdfLut.sampler = nullptr;
@@ -617,7 +631,7 @@ void EnvironmentSystem::cleanup()
     environment.runtimeIrradianceCube.memory = nullptr;
     environment.runtimeIrradianceCube.image = nullptr;
 
-    fallbackBrdfLut.reset();
+    
 
     fallbackBlackCubeSampler = nullptr;
     fallbackBlackCubeView = nullptr;
@@ -658,21 +672,19 @@ void EnvironmentSystem::createHdrEnvironmentTexture(const std::string& path)
         4 *
         sizeof(float);
 
-    vk::raii::Buffer stagingBuffer{ nullptr };
-    vk::raii::DeviceMemory stagingMemory{ nullptr };
+    GpuBuffer stagingBuffer;
 
     bufferUtils.createBuffer(
         imageSize,
         vk::BufferUsageFlagBits::eTransferSrc,
         vk::MemoryPropertyFlagBits::eHostVisible |
         vk::MemoryPropertyFlagBits::eHostCoherent,
-        stagingBuffer,
-        stagingMemory);
+        stagingBuffer);
 
     {
-        void* mapped = stagingMemory.mapMemory(0, imageSize);
+        void* mapped = stagingBuffer.mapped;
         std::memcpy(mapped, pixels, static_cast<size_t>(imageSize));
-        stagingMemory.unmapMemory();
+        
     }
 
     stbi_image_free(pixels);
@@ -760,7 +772,7 @@ void EnvironmentSystem::createHdrEnvironmentTexture(const std::string& path)
             1 });
 
     cmd.copyBufferToImage(
-        *stagingBuffer,
+        stagingBuffer.buffer,
         *hdrEnvironmentImage,
         vk::ImageLayout::eTransferDstOptimal,
         copyRegion);
@@ -789,6 +801,8 @@ void EnvironmentSystem::createHdrEnvironmentTexture(const std::string& path)
         nullptr,
         nullptr,
         toShaderRead);
+
+    bufferUtils.endSingleTimeCommands(cmd);
 
     bufferUtils.endSingleTimeCommands(cmd);
 
