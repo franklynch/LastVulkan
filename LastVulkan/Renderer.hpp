@@ -25,6 +25,7 @@ import vulkan_hpp;
 #include "BufferUtils.hpp"
 #include "ImageUtils.hpp"
 #include "MeshData.hpp"
+#include "GpuResources.hpp"
 
 
 
@@ -169,19 +170,8 @@ private:
 
     std::vector<std::unique_ptr<GpuMesh>> gpuMeshes;
 
+    std::vector<GpuBuffer> uniformBuffers;
 
-    
-
-   
-
-    std::vector<vk::raii::Buffer> uniformBuffers;
-    std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
-    std::vector<void*> uniformBuffersMapped;
-
-
-    
-    
-    
     void resetEnvironmentSettings();
 
 

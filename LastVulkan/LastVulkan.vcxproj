@@ -139,6 +139,7 @@
     <ClInclude Include="GltfLoader.hpp" />
     <ClInclude Include="GltfSceneLoader.hpp" />
     <ClInclude Include="GpuMesh.hpp" />
+    <ClInclude Include="GpuResources.hpp" />
     <ClInclude Include="ImageUtils.hpp" />
     <ClInclude Include="InputState.hpp" />
     <ClInclude Include="IrradianceRenderer.hpp" />

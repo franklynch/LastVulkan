@@ -27,6 +27,8 @@
 
 
 
+
+
 #include <chrono>
 
 
@@ -270,18 +272,30 @@ void Renderer::setupCameraDefaults()
 void Renderer::createUniformBuffers()
 {
     uniformBuffers.clear();
-    uniformBuffersMemory.clear();
-    uniformBuffersMapped.clear();
+    uniformBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+    const vk::DeviceSize bufferSize =
+        sizeof(UniformBufferObject);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
     {
-        vk::DeviceSize         bufferSize = sizeof(UniformBufferObject);
-        vk::raii::Buffer       buffer({});
-        vk::raii::DeviceMemory bufferMem({});
-        bufferUtils.createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, buffer, bufferMem);
-        uniformBuffers.emplace_back(std::move(buffer));
-        uniformBuffersMemory.emplace_back(std::move(bufferMem));
-        uniformBuffersMapped.emplace_back(uniformBuffersMemory[i].mapMemory(0, bufferSize));
+        GpuBuffer uniformBuffer{};
+
+        bufferUtils.createBuffer(
+            bufferSize,
+            vk::BufferUsageFlagBits::eUniformBuffer,
+            vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+            uniformBuffer.buffer,
+            uniformBuffer.memory);
+
+        uniformBuffer.mapped =
+            uniformBuffer.memory.mapMemory(
+                0,
+                bufferSize);
+
+        uniformBuffers.emplace_back(
+            std::move(uniformBuffer));
     }
 }
 
@@ -372,7 +386,10 @@ void Renderer::updateUniformBuffer(uint32_t currentFrame)
     lastUbo = ubo;
 
 
-    std::memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+    std::memcpy(
+        uniformBuffers[currentFrame].mapped,
+        &ubo,
+        sizeof(ubo));
 
 
 

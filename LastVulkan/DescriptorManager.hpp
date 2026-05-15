@@ -11,6 +11,8 @@ import vulkan_hpp;
 #include "VulkanContext.hpp"
 #include "Material.hpp"
 
+#include "GpuResources.hpp"
+
 class DescriptorManager
 {
 public:
@@ -33,7 +35,7 @@ public:
     void allocateIBLDescriptorSet();
 
     void updateFrameDescriptorSets(
-        const std::vector<vk::raii::Buffer>& uniformBuffers,
+        const std::vector<GpuBuffer>& uniformBuffers,
         uint32_t maxFramesInFlight);
 
     void createMaterialDescriptorSets(

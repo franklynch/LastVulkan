@@ -240,9 +240,8 @@ void DescriptorManager::allocateIBLDescriptorSet()
 }
 
 
-
 void DescriptorManager::updateFrameDescriptorSets(
-    const std::vector<vk::raii::Buffer>& uniformBuffers,
+    const std::vector<GpuBuffer>& uniformBuffers,
     uint32_t maxFramesInFlight)
 {
     auto& device = vkContext.getDevice();
@@ -263,7 +262,7 @@ void DescriptorManager::updateFrameDescriptorSets(
     {
         vk::DescriptorBufferInfo bufferInfo{};
         bufferInfo
-            .setBuffer(*uniformBuffers[i])
+            .setBuffer(*uniformBuffers[i].buffer)
             .setOffset(0)
             .setRange(sizeof(UniformBufferObject));
 
@@ -271,12 +270,11 @@ void DescriptorManager::updateFrameDescriptorSets(
         write
             .setDstSet(*m_frameDescriptorSets[i])
             .setDstBinding(0)
-            .setDstArrayElement(0)
             .setDescriptorType(vk::DescriptorType::eUniformBuffer)
             .setDescriptorCount(1)
             .setBufferInfo(bufferInfo);
 
-        device.updateDescriptorSets(write, nullptr);
+        device.updateDescriptorSets(write, {});
     }
 }
 
